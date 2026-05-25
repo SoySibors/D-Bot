@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Delivery Bot</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>🛵 Delivery Bot</h1>
+      <div class="header-right">
+        <button class="btn-notif" id="btnNotif" onclick="requestNotifPermission()" title="Activar alertas">🔔</button>
+        <button class="btn-logout" id="btnLogout" onclick="confirmLogout()" title="Cerrar sesión WhatsApp">🚪</button>
+        <div class="wa-status">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">Conectando...</span>
+        </div>
+      </div>
+    </header>
+
+    <section id="pairingSection" class="card hidden">
+      <h2>Vincular WhatsApp</h2>
+      <div id="phoneInputStep">
+        <p class="hint">WhatsApp → Dispositivos vinculados → Vincular con el número de teléfono.</p>
+        <p class="hint" style="margin-top: 8px;">Ingresa tu número (ej: 521998...):</p>
+        <div class="row" style="margin-top: 8px;">
+          <input type="tel" id="waPhoneNumber" placeholder="5219981234567" />
+          <button class="btn-sm" onclick="requestWaCode()" id="btnRequestCode" style="background: #25d366; color: #000;">Generar código</button>
+        </div>
+      </div>
+      <div id="codeDisplayStep" class="hidden">
+        <p class="hint" style="margin-bottom: 10px;">Introduce este código en tu celular:</p>
+        <div style="font-size: 2rem; font-weight: 800; color: #25d366; text-align: center; letter-spacing: 6px; padding: 15px; background: #0f1117; border-radius: 12px; border: 2px dashed #252836;" id="pairingCodeDisplay">--------</div>
+      </div>
+    </section>
+
+    <div id="groupsList"></div>
+
+    <button class="btn-add-group" onclick="openModal()">+ Agregar grupo</button>
+  </div>
+
+  <div id="groupModal" class="modal-overlay hidden" onclick="closeModalOutside(event)">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Nuevo grupo</h2>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+
+      <div class="field">
+        <label>Grupo de WhatsApp</label>
+        <div class="row">
+          <select id="groupSelect">
+            <option value="">— Selecciona —</option>
+          </select>
+          <button class="btn-sm" onclick="loadWAGroups()">🔄</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Mensaje de respuesta</label>
+        <input type="text" id="replyMessage" value="yo" placeholder="yo" />
+      </div>
+
+      <div class="field">
+        <div class="numbers-header">
+          <label>Negocios</label>
+          <div class="toggle-all-btns">
+            <button class="btn-toggle-all on" onclick="toggleAllModal(true)">Todos ON</button>
+            <button class="btn-toggle-all off" onclick="toggleAllModal(false)">Todos OFF</button>
+          </div>
+        </div>
+        <p class="hint">Nombre del negocio (opcional)</p>
+        <input type="text" id="numberNameInput" placeholder="Ej: Burger St" style="margin-bottom:8px;width:100%;" />
+        <p class="hint">Número (código de país + número)</p>
+        <div class="row">
+          <input type="tel" id="numberInput" placeholder="5219981234567" />
+          <button class="btn-sm" onclick="addNumber()">+</button>
+        </div>
+        <ul id="numberList" class="tag-list"></ul>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-delete hidden" id="btnDelete" onclick="deleteGroup()">🗑 Eliminar</button>
+        <button class="btn-save" onclick="saveGroup()">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
