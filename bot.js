@@ -66,16 +66,15 @@ async function handleMessage(m) {
     const group = groups.find(g => g.groupId === from);
     if (!group || !group.active) return;
 
-    // --- SOLUCIÓN: ESCÁNER PROFUNDO DE STICKERS ---
     let isSticker = false;
     const messageContent = msg.message;
     
     if (messageContent.stickerMessage) {
         isSticker = true;
     } else if (messageContent.ephemeralMessage?.message?.stickerMessage) {
-        isSticker = true; // Stickers en grupos con mensajes temporales
+        isSticker = true;
     } else if (messageContent.viewOnceMessage?.message?.stickerMessage) {
-        isSticker = true; // Stickers enviados como ver una vez
+        isSticker = true;
     } else if (messageContent.viewOnceMessageV2?.message?.stickerMessage) {
         isSticker = true;
     }
@@ -83,26 +82,25 @@ async function handleMessage(m) {
     if (!isSticker) return;
 
     const sender = msg.key.participant || msg.key.remoteJid;
-    console.log(`[BOT] 🎯 Sticker detectado en grupo "${group.groupName}" de: ${sender}`);
 
-    // Filtrar si el sticker viene de un negocio autorizado y activo
     const negocioConfig = group.numbers.find(n => {
         const num = typeof n === 'string' ? n : n.number;
         const active = typeof n === 'string' ? true : n.active !== false;
         return active && numbersMatch(sender, num);
     });
 
+    // Si el negocio NO está registrado, mandamos el ID a la caja web
     if (!negocioConfig) {
-        console.log(`[BOT] ❌ Ignorado: El número ${sender} no coincide con ningún negocio activo.`);
+        const cleanId = sender.replace('@lid', '').replace('@s.whatsapp.net', '');
+        console.log(`[BOT] ❌ Nuevo negocio detectado. ID enviado a la web: ${cleanId}`);
+        if (io) io.emit('nuevo-id', { groupName: group.groupName, id: cleanId });
         return;
     }
 
-    // ACCIÓN ATÓMICA: Apagar todo de inmediato para no duplicar respuestas
     groups.forEach(g => g.active = false);
     if (io) io.emit('groups', groups);
 
     try {
-        // Enviar el "yo" citando el sticker original para asegurar el lugar
         await sock.sendMessage(from, { text: group.replyMessage }, { quoted: msg });
         console.log(`[BOT] ✅ ¡Pedido tomado en ${group.groupName}!`);
         
