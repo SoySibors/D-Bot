@@ -66,11 +66,24 @@ async function handleMessage(m) {
     const group = groups.find(g => g.groupId === from);
     if (!group || !group.active) return;
 
-    // Detectar si es un sticker
-    const isSticker = !!msg.message.stickerMessage;
+    // --- SOLUCIÓN: ESCÁNER PROFUNDO DE STICKERS ---
+    let isSticker = false;
+    const messageContent = msg.message;
+    
+    if (messageContent.stickerMessage) {
+        isSticker = true;
+    } else if (messageContent.ephemeralMessage?.message?.stickerMessage) {
+        isSticker = true; // Stickers en grupos con mensajes temporales
+    } else if (messageContent.viewOnceMessage?.message?.stickerMessage) {
+        isSticker = true; // Stickers enviados como ver una vez
+    } else if (messageContent.viewOnceMessageV2?.message?.stickerMessage) {
+        isSticker = true;
+    }
+
     if (!isSticker) return;
 
     const sender = msg.key.participant || msg.key.remoteJid;
+    console.log(`[BOT] 🎯 Sticker detectado en grupo "${group.groupName}" de: ${sender}`);
 
     // Filtrar si el sticker viene de un negocio autorizado y activo
     const negocioConfig = group.numbers.find(n => {
@@ -79,7 +92,10 @@ async function handleMessage(m) {
         return active && numbersMatch(sender, num);
     });
 
-    if (!negocioConfig) return;
+    if (!negocioConfig) {
+        console.log(`[BOT] ❌ Ignorado: El número ${sender} no coincide con ningún negocio activo.`);
+        return;
+    }
 
     // ACCIÓN ATÓMICA: Apagar todo de inmediato para no duplicar respuestas
     groups.forEach(g => g.active = false);
@@ -110,7 +126,6 @@ async function connectToWhatsApp() {
         },
         printQRInTerminal: false,
         browser: ["Ubuntu", "Chrome", "20.0.04"],
-        // Optimizaciones extremas de memoria
         syncFullHistory: false, 
         markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false
@@ -121,7 +136,6 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
-        // Cuando el sistema está listo para dar el código
         if (qr) {
             status = { connected: false, whatsappStatus: 'pairing_ready', needsPairing: true };
             if (io) io.emit('status', status);
@@ -153,7 +167,6 @@ module.exports = {
     getStatus: () => status,
     getGroupsConfig: () => groups,
     
-    // Función para generar el código de 8 dígitos desde la web
     requestPairingCodeAuth: async (phoneNumber) => {
         if (!sock) throw new Error('El sistema está iniciando.');
         if (!status.needsPairing) throw new Error('Ya hay una sesión iniciada.');
