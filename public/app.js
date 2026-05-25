@@ -3,22 +3,29 @@ let groups = [];
 let modalNums = [];
 let editingId = null;
 
-// ==========================================
-// RECEPCIÓN DE EVENTOS DE SOCKET.IO
-// ==========================================
 socket.on('status', (s) => updateStatusDot(s));
 socket.on('groups', (g) => { groups = g; renderGroups(); });
-
-// Evento modificado: Escucha si el bot arroja señal de QR e interactúa con el panel de código
-socket.on('qr', (dataUrl) => {
-  // Baileys usa WebSockets internos, si llega un QR/Señal manejamos la visibilidad desde el status badge
-});
-
+socket.on('qr', (dataUrl) => { });
 socket.on('pedido-tomado', ({ groupName }) => alertPedido(groupName));
 
-// ==========================================
-// ACCIÓN PARA SOLICITAR EL CÓDIGO DE 8 DÍGITOS
-// ==========================================
+// NUEVO EVENTO: Atrapa el ID que manda el bot y lo dibuja en la caja negra
+socket.on('nuevo-id', (data) => {
+  const box = document.getElementById('rastreadorBox');
+  if (box.textContent.includes('Esperando')) box.innerHTML = '';
+  
+  const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+  const el = document.createElement('div');
+  el.style.marginBottom = '12px';
+  el.style.paddingBottom = '12px';
+  el.style.borderBottom = '1px solid #1a1d27';
+  
+  el.innerHTML = `
+    <span style="color:#888; font-size:0.75rem;">[${time}]</span> <span style="color:#fff;">${data.groupName}</span><br>
+    <div style="margin-top:6px;">ID: <b style="color:#25d366; font-size:1.15rem; user-select:all;">${data.id}</b></div>
+  `;
+  box.prepend(el);
+});
+
 async function requestWaCode() {
   const phoneInput = document.getElementById('waPhoneNumber').value.trim().replace(/\D/g, '');
   if (!phoneInput) {
@@ -56,9 +63,6 @@ async function requestWaCode() {
   }
 }
 
-// ==========================================
-// ACTUALIZACIÓN DE LA INTERFAZ Y ESTADOS
-// ==========================================
 function updateStatusDot(statusObj) {
   const ws = statusObj.whatsappStatus;
   const dot = document.getElementById('statusDot');
@@ -87,7 +91,6 @@ function updateStatusDot(statusObj) {
       if (btnRequest) btnRequest.disabled = true;
     }
     
-    // Si la sesión de Baileys reporta que necesita emparejamiento, mostramos la sección
     if (statusObj.needsPairing && pairingSection) {
       pairingSection.classList.remove('hidden');
       document.getElementById('phoneInputStep').classList.remove('hidden');
@@ -297,7 +300,6 @@ function showToast(msg, isError = false) {
 document.getElementById('numberInput').addEventListener('keydown', e => { if (e.key === 'Enter') addNumber(); });
 document.getElementById('numberNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('numberInput').focus(); });
 
-// Inicialización
 fetch('/api/status').then(r => r.json()).then(s => updateStatusDot(s)).catch(()=>{});
 fetch('/api/groups').then(r => r.json()).then(g => { groups = g; renderGroups(); }).catch(()=>{});
 updateNotifBtn();
