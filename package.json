@@ -1,0 +1,16 @@
+{
+  "name": "d-bot",
+  "version": "3.0.0",
+  "description": "Sistema automatizado de delivery - Motor Baileys",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --max-old-space-size=150 server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.5",
+    "express": "^4.18.2",
+    "pino": "^8.20.0",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.2"
+  }
+}
