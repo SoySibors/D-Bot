@@ -36,14 +36,6 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>Radar de Negocios Nuevos 📡</h2>
-      <p class="hint">Cuando un negocio no registrado envíe un sticker, aparecerá aquí abajo. Toca "+ Agregar" para guardarlo en un solo click.</p>
-      <div id="rastreadorBox" style="background: #0a0c10; padding: 12px; border-radius: 10px; height: 160px; overflow-y: auto; border: 1px dashed #252836;">
-        <div style="color: #555; text-align: center; margin-top: 50px;">Escaneando grupos en vivo...</div>
-      </div>
-    </section>
-
     <div id="groupsList"></div>
 
     <button class="btn-add-group" onclick="openModal()">+ Agregar grupo</button>
@@ -75,15 +67,23 @@
         <div class="numbers-header">
           <label>Negocios</label>
           <div class="toggle-all-btns">
-            <button class="btn-toggle-all on" onclick="toggleAllModal(true)">Todos ON</button>
-            <button class="btn-toggle-all off" onclick="toggleAllModal(false)">Todos OFF</button>
+            <button class="btn-sm hidden" style="background: #1b3a5c; color: #7eb8f7; padding: 5px 12px; margin-right: 5px;" id="btnShowDiscovered" onclick="toggleDiscovered()">📡 Radar</button>
+            
+            <button class="btn-toggle-all on" onclick="toggleAllModal(true)">ON</button>
+            <button class="btn-toggle-all off" onclick="toggleAllModal(false)">OFF</button>
           </div>
         </div>
+
+        <div id="discoveredSection" class="hidden" style="background: #0a0c10; padding: 12px; border-radius: 10px; border: 1px dashed #7eb8f7; margin-bottom: 12px;">
+            <p class="hint" style="color: #7eb8f7; margin-bottom: 8px;">Negocios detectados en este grupo:</p>
+            <div id="discoveredList"></div>
+        </div>
+
         <p class="hint">Nombre del negocio (opcional)</p>
         <input type="text" id="numberNameInput" placeholder="Ej: Burger St" style="margin-bottom:8px;width:100%;" />
         <p class="hint">Número o ID Rastreado</p>
         <div class="row">
-          <input type="tel" id="numberInput" placeholder="ID del negocio..." />
+          <input type="tel" id="numberInput" placeholder="Pega el ID aquí..." />
           <button class="btn-sm" onclick="addNumber()" id="btnAddNumForm">+</button>
         </div>
         <ul id="numberList" class="tag-list"></ul>
