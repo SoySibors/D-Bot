@@ -1,308 +1,528 @@
 const socket = io();
-let groups = [];
-let modalNums = [];
-let editingId = null;
-let currentRadarWaGroupId = null;
-let currentRadarInternalId = null;
 
-socket.on('status', (s) => updateStatusDot(s));
-socket.on('groups', (g) => { groups = g; renderGroups(); });
-socket.on('qr', (dataUrl) => { });
-socket.on('pedido-tomado', ({ groupName }) => alertPedido(groupName));
+let currentStatus = { connected: false, whatsappStatus: 'disconnected', needsPairing: true };
+let localGroups = [];
+let localSettings = { messages: ['yo'] };
 
-// Recargar el radar en vivo si está abierto
-socket.on('nuevo-descubierto', ({ groupId }) => {
-    if (currentRadarWaGroupId === groupId && !document.getElementById('radarModal').classList.contains('hidden')) {
-        loadRadarList();
-    }
+let activeTab = 'groups';
+let editingGroupId = null;
+let modalNumbers = [];
+let activeRadarGroupId = null;
+
+// ==========================================
+// 🧭 NAVEGACIÓN Y CAMBIO DE PESTAÑAS (UX)
+// ==========================================
+function switchTab(tabId) {
+  activeTab = tabId;
+  
+  // Ocultar todas las secciones
+  document.querySelectorAll('.tab-section').forEach(sec => sec.classList.add('hidden'));
+  // Desactivar todos los botones de la barra inferior
+  document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+  
+  // Mostrar la sección seleccionada y activar su botón
+  document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+  document.getElementById(`navBtn-${tabId}`).classList.add('active');
+
+  if (tabId === 'groups') {
+    renderGroups(localGroups);
+  } else if (tabId === 'settings') {
+    renderTags();
+  }
+}
+
+// ==========================================
+// 📡 MANEJO DE SOCKETS (TIEMPO REAL)
+// ==========================================
+socket.on('status', (status) => {
+  currentStatus = status;
+  updateStatusUI();
 });
 
-// ABRIR Y CERRAR EL RADAR
-function openRadar(internalId, waGroupId, groupName) {
-    currentRadarInternalId = internalId;
-    currentRadarWaGroupId = waGroupId;
-    document.getElementById('radarTitle').innerHTML = `📡 Radar: <span style="color:#fff; font-size:0.9rem;">${groupName}</span>`;
-    document.getElementById('radarModal').classList.remove('hidden');
-    loadRadarList();
-}
-
-function closeRadar() { document.getElementById('radarModal').classList.add('hidden'); }
-function closeRadarOutside(e) { if (e.target === document.getElementById('radarModal')) closeRadar(); }
-
-async function loadRadarList() {
-    const listEl = document.getElementById('radarList');
-    listEl.innerHTML = '<div style="color:#555;font-size:0.8rem; text-align:center;">Cargando historial...</div>';
-    try {
-        const res = await fetch(`/api/groups/${currentRadarWaGroupId}/discovered`);
-        const data = await res.json();
-        if (!data.length) {
-            listEl.innerHTML = '<div style="color:#555;font-size:0.8rem; text-align:center; margin-top:20px;">No hay historial de stickers aún.</div>';
-            return;
-        }
-        listEl.innerHTML = data.map(d => {
-            const safeName = d.name.replace(/'/g, "\\'");
-            return `
-            <div style="display:flex; justify-content:space-between; align-items:center; background:#1a1d27; padding:10px 12px; border-radius:10px; margin-bottom:8px; border: 1px solid #252836;">
-                <div style="flex:1; min-width:0; padding-right: 10px;">
-                    <div style="color:#fff; font-size:0.9rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${d.name}</div>
-                    <div style="color:#25d366; font-size:0.75rem; font-family:monospace; margin-top:3px;">ID: ${d.lid}</div>
-                </div>
-                <button onclick="addFromRadar('${d.lid}', '${safeName}')" style="background:#252836; color:#7eb8f7; border:1px solid #7eb8f7; border-radius:8px; padding:8px 14px; font-weight:700; cursor:pointer; font-size:0.8rem; transition: background 0.2s;">+ Add</button>
-            </div>
-            `;
-        }).join('');
-    } catch(e) {
-        listEl.innerHTML = '<div style="color:#e74c3c;font-size:0.8rem; text-align:center;">Error al cargar</div>';
+socket.on('groups', (groups) => {
+  localGroups = groups;
+  if (activeTab === 'groups') {
+    renderGroups(localGroups);
+  }
+  // Si el modal del grupo que se está editando cambia, refrescar su lista interna
+  if (editingGroupId) {
+    const updated = groups.find(g => g.id === editingGroupId);
+    if (updated) {
+      modalNumbers = updated.numbers || [];
+      renderModalNumbers();
     }
-}
+  }
+});
 
-// AGREGAR DESDE EL RADAR (Anti-Duplicados y Permanente)
-async function addFromRadar(lid, name) {
-    const g = groups.find(x => x.id === currentRadarInternalId);
-    if (!g) return;
+socket.on('settings', (settings) => {
+  localSettings = settings;
+  if (activeTab === 'settings') {
+    renderTags();
+  }
+});
 
-    // Bloqueo Anti-Duplicado
-    if (g.numbers.some(n => (typeof n === 'string' ? n : n.number) === lid)) {
-        showToast('❌ Ese número ya está configurado', true);
-        return;
-    }
+socket.on('nuevo-descubierto', (data) => {
+  // Si el usuario tiene el radar abierto de ese grupo específico, actualizar la lista al instante
+  if (activeRadarGroupId && activeRadarGroupId === data.groupId) {
+    loadRadarList(data.groupId);
+  }
+});
 
-    const updatedNumbers = [...g.numbers, { number: lid, name: name, active: true }];
-    const data = { ...g, numbers: updatedNumbers };
+socket.on('pedido-tomado', (data) => {
+  showToast(`🚀 ¡Gatillo disparado con éxito en: ${data.groupName}!`);
+  if (Notification.permission === 'granted') {
+    new Notification('🛵 Delivery Bot', { body: `¡Pedido atrapado en ${data.groupName}! Bot en reposo.` });
+  }
+});
 
-    await fetch(`/api/groups/${currentRadarInternalId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
+// ==========================================
+// 🔌 INTERFAZ DE ESTADO Y VINCULACIÓN
+// ==========================================
+function updateStatusUI() {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  const stepPhone = document.getElementById('phoneInputStep');
+  const stepCode = document.getElementById('codeDisplayStep');
 
-    showToast(`✅ Agregado: ${name}`);
-    // No borramos la tarjeta del radar, se queda como historial permanente.
+  dot.className = 'dot';
+
+  if (currentStatus.connected) {
+    dot.classList.add('online');
+    txt.innerText = 'Conectado';
+    stepPhone.classList.add('hidden');
+    stepCode.classList.add('hidden');
+  } else if (currentStatus.whatsappStatus === 'pairing_ready') {
+    dot.classList.add('pairing');
+    txt.innerText = 'Esperando Código';
+  } else {
+    dot.classList.add('offline');
+    txt.innerText = 'Desconectado';
+  }
+
+  if (currentStatus.needsPairing && !currentStatus.connected && currentStatus.whatsappStatus !== 'pairing_ready') {
+    stepPhone.classList.remove('hidden');
+    stepCode.classList.add('hidden');
+  }
 }
 
 async function requestWaCode() {
-  const phoneInput = document.getElementById('waPhoneNumber').value.trim().replace(/\D/g, '');
-  if (!phoneInput) { showToast('Ingresa un número válido', true); return; }
+  const phone = document.getElementById('waPhoneNumber').value.trim();
+  if (!phone) return showToast('Introduce tu número de WhatsApp.');
+  
   const btn = document.getElementById('btnRequestCode');
-  btn.textContent = '...'; btn.disabled = true;
+  btn.innerText = 'Generando...';
+  btn.disabled = true;
 
   try {
-    const res = await fetch('/api/request-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneInput }) });
+    const res = await fetch('/api/request-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
     const data = await res.json();
-    if (res.ok && data.code) {
-      document.getElementById('phoneInputStep').classList.add('hidden');
-      document.getElementById('codeDisplayStep').classList.remove('hidden');
-      document.getElementById('pairingCodeDisplay').textContent = data.code;
-      showToast('¡Código generado! 🔑');
-    } else throw new Error(data.error || 'Error del servidor');
-  } catch (e) { showToast('Error: ' + e.message, true); } 
-  finally {
-    btn.textContent = 'Generar código';
-    if (!document.getElementById('phoneInputStep').classList.contains('hidden')) btn.disabled = false;
+    if (data.error) throw new Error(data.error);
+
+    document.getElementById('phoneInputStep').classList.add('hidden');
+    document.getElementById('codeDisplayStep').classList.remove('hidden');
+    document.getElementById('pairingCodeDisplay').innerText = data.code;
+    showToast('Introduce el código en tu WhatsApp.');
+  } catch (e) {
+    showToast(e.message);
+    btn.innerText = 'Generando código';
+    btn.disabled = false;
   }
 }
 
-function updateStatusDot(statusObj) {
-  const ws = statusObj.whatsappStatus;
-  const dot = document.getElementById('statusDot');
-  const text = document.getElementById('statusText');
-  const pairingSection = document.getElementById('pairingSection');
-  const btnRequest = document.getElementById('btnRequestCode');
-  
-  dot.className = 'dot';
-  if (ws === 'ready') {
-    dot.classList.add('connected'); text.textContent = 'Conectado';
-    if (pairingSection) pairingSection.classList.add('hidden');
-  } else {
-    if (ws === 'pairing_ready') { dot.classList.add('qr'); text.textContent = 'Listo para vincular'; if (btnRequest) btnRequest.disabled = false; }
-    else if (ws === 'connecting') { dot.classList.add('qr'); text.textContent = 'Conectando...'; if (btnRequest) btnRequest.disabled = true; }
-    else { dot.classList.add('error'); text.textContent = 'Desconectado'; if (btnRequest) btnRequest.disabled = true; }
-    
-    if (statusObj.needsPairing && pairingSection) {
-      pairingSection.classList.remove('hidden');
-      document.getElementById('phoneInputStep').classList.remove('hidden');
-      document.getElementById('codeDisplayStep').classList.add('hidden');
-    }
-  }
-}
+// ==========================================
+// 🎨 RENDERIZADO DE GRUPOS (TOGGLES iOS)
+// ==========================================
+function renderGroups(groups) {
+  const container = document.getElementById('groupsList');
+  container.innerHTML = '';
 
-// RENDEREADO DE LA TARJETA PRINCIPAL (Ahora con doble botón)
-function renderGroups() {
-  const el = document.getElementById('groupsList');
-  if (!groups.length) { el.innerHTML = '<div class="empty">Sin grupos · toca + para agregar</div>'; return; }
-  el.innerHTML = groups.map(g => {
-    const onCount = g.numbers.filter(n => typeof n === 'string' ? true : n.active !== false).length;
-    // Escapamos el nombre por si trae comillas
-    const safeGroupName = g.groupName.replace(/'/g, "\\'");
-    return `
-      <div class="group-card ${g.active ? 'is-active' : ''}" id="card-${g.id}">
-        <div class="group-card-header">
-          <div class="group-card-info">
-            <div class="group-card-name">${g.groupName}</div>
-            <div class="group-card-meta">${onCount} de ${g.numbers.length} negocios activos · stickers</div>
-          </div>
-          <div style="display:flex; gap: 8px;">
-            <button class="group-card-edit" onclick="openRadar('${g.id}', '${g.groupId}', '${safeGroupName}')" style="color:#7eb8f7;" title="Abrir Radar">📡</button>
-            <button class="group-card-edit" onclick="openModal('${g.id}')" title="Configurar">⚙️</button>
-          </div>
+  if (groups.length === 0) {
+    container.innerHTML = `<div class="empty-state">No tienes grupos configurados.<br>Toca el botón de abajo para agregar uno.</div>`;
+    return;
+  }
+
+  groups.forEach(g => {
+    const activeCount = g.numbers.filter(n => n.active !== false).length;
+    const card = document.createElement('div');
+    card.className = `group-card ${g.active ? 'hunting' : ''}`;
+
+    card.innerHTML = `
+      <div class="group-card-header">
+        <div onclick="openModal('${g.id}')" style="flex:1; cursor:pointer;">
+          <h3>${g.groupName}</h3>
+          <p class="subtitle">${activeCount} de ${g.numbers.length} negocios activos</p>
         </div>
-        <button class="group-toggle ${g.active ? 'on' : 'off'}" onclick="toggleGroup('${g.id}')">
-          ${g.active ? '⏹ DESACTIVAR' : '▶ ACTIVAR'}
-        </button>
+        
+        <label class="ios-switch">
+          <input type="checkbox" ${g.active ? 'checked' : ''} onchange="toggleGroupHunting('${g.id}', this.checked)">
+          <span class="ios-slider"></span>
+        </label>
+      </div>
+
+      <div class="group-card-actions">
+        <button class="btn-radar-action" onclick="openRadar('${g.groupId}', '${g.groupName}')">📡 Abrir Radar del Grupo</button>
       </div>
     `;
-  }).join('');
+    container.appendChild(card);
+  });
 }
 
-async function toggleGroup(id) {
-  const g = groups.find(x => x.id === id);
-  if (!g) return;
-  await fetch(`/api/groups/${id}/${g.active ? 'deactivate' : 'activate'}`, { method: 'POST' });
-}
-
-function openModal(id = null) {
-  editingId = id;
-  if (id) {
-    const g = groups.find(x => x.id === id);
-    document.getElementById('modalTitle').textContent = 'Editar grupo';
-    document.getElementById('replyMessage').value = g.replyMessage || 'yo';
-    modalNums = g.numbers.map(n => typeof n === 'string' ? { number: n, name: n, active: true } : { ...n });
-    loadWAGroups(g.groupId, g.groupName);
-    document.getElementById('btnDelete').classList.remove('hidden');
-  } else {
-    document.getElementById('modalTitle').textContent = 'Nuevo grupo';
-    document.getElementById('replyMessage').value = 'yo';
-    document.getElementById('groupSelect').innerHTML = '<option value="">— Selecciona —</option>';
-    modalNums = [];
-    document.getElementById('btnDelete').classList.add('hidden');
-    loadWAGroups();
+async function toggleGroupHunting(id, isChecked) {
+  const url = `/api/groups/${id}/${isChecked ? 'activate' : 'deactivate'}`;
+  try {
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) throw new Error();
+  } catch (e) {
+    showToast('Error al cambiar estado del bot.');
+    renderGroups(localGroups); // Revertir visualmente
   }
-  renderModalNums();
+}
+
+// ==========================================
+// 📡 RADAR PERSISTENTE POR GRUPO
+// ==========================================
+async function openRadar(waGroupId, groupName) {
+  activeRadarGroupId = waGroupId;
+  document.getElementById('radarTitle').innerText = `📡 Radar: ${groupName}`;
+  document.getElementById('radarModal').classList.remove('hidden');
+  loadRadarList(waGroupId);
+}
+
+function closeRadar() {
+  document.getElementById('radarModal').classList.add('hidden');
+  activeRadarGroupId = null;
+}
+
+function closeRadarOutside(e) {
+  if (e.target.id === 'radarModal') closeRadar();
+}
+
+async function loadRadarList(waGroupId) {
+  const listCont = document.getElementById('radarList');
+  try {
+    const res = await fetch(`/api/groups/${waGroupId}/discovered`);
+    const data = await res.json();
+    listCont.innerHTML = '';
+
+    if (data.length === 0) {
+      listCont.innerHTML = '<p class="hint" style="text-align:center; padding: 20px 0;">No se han detectado stickers en este grupo todavía. El radar se actualizará solo en cuanto caiga uno.</p>';
+      return;
+    }
+
+    data.forEach(item => {
+      const timeStr = new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const row = document.createElement('div');
+      row.className = 'radar-row';
+      row.innerHTML = `
+        <div class="radar-info">
+          <span class="radar-time">${timeStr}</span>
+          <span class="radar-name">${item.name}</span>
+          <span class="radar-id">ID: ${item.lid}</span>
+        </div>
+        <button class="btn-radar-add" onclick="addFromRadar('${waGroupId}', '${item.lid}', '${item.name}')">+ Add</button>
+      `;
+      listCont.appendChild(row);
+    });
+  } catch (e) {
+    listCont.innerHTML = '<p class="hint">Error cargando el radar.</p>';
+  }
+}
+
+async function addFromRadar(waGroupId, lid, name) {
+  // Buscar a qué grupo local pertenece este waGroupId
+  const group = localGroups.find(g => g.groupId === waGroupId);
+  if (!group) return showToast('Error: Grupo no encontrado en el panel.');
+
+  // Validar si el negocio ya está en la lista de ese grupo
+  const yaExiste = group.numbers.some(n => n.number === lid);
+  if (yaExiste) {
+    return showToast('Este negocio ya lo tienes configurado en el grupo.');
+  }
+
+  // Clonar y empujar el nuevo negocio
+  const updatedNumbers = [...group.numbers, { number: lid, name: name, active: true }];
+  
+  try {
+    const res = await fetch(`/api/groups/${group.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numbers: updatedNumbers })
+    });
+    if (!res.ok) throw new Error();
+    showToast(`✅ Agregado: ${name}`);
+  } catch (e) {
+    showToast('Error al guardar en la lista.');
+  }
+}
+
+// ==========================================
+// 🏷️ RESPUESTAS ROTATIVAS GLOBALES (TAGS)
+// ==========================================
+function renderTags() {
+  const cont = document.getElementById('tagsContainer');
+  cont.innerHTML = '';
+  const msgs = localSettings.messages || ['yo'];
+
+  msgs.forEach((msg, idx) => {
+    const tag = document.createElement('div');
+    tag.className = 'msg-tag';
+    tag.innerHTML = `
+      <span>${msg}</span>
+      <button onclick="removeMsgTag(${idx})">✕</button>
+    `;
+    cont.appendChild(tag);
+  });
+}
+
+async function addNewMsgTag() {
+  const input = document.getElementById('newTagInput');
+  const value = input.value.trim();
+  if (!value) return;
+
+  const currentMsgs = [...(localSettings.messages || [])];
+  if (currentMsgs.includes(value)) {
+    input.value = '';
+    return showToast('Esa respuesta ya existe.');
+  }
+
+  currentMsgs.push(value);
+  await saveGlobalSettings(currentMsgs);
+  input.value = '';
+}
+
+async function removeMsgTag(index) {
+  const currentMsgs = [...(localSettings.messages || [])];
+  currentMsgs.splice(index, 1);
+  await saveGlobalSettings(currentMsgs);
+}
+
+async function saveGlobalSettings(messagesArray) {
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: messagesArray })
+    });
+    const data = await res.json();
+    localSettings = data;
+    renderTags();
+  } catch (e) {
+    showToast('Error al guardar ajustes.');
+  }
+}
+
+// ==========================================
+// 📝 MODAL DE GRUPOS (CREAR / EDITAR)
+// ==========================================
+async function openModal(id = null) {
+  editingGroupId = id;
+  modalNumbers = [];
+  
+  document.getElementById('groupSelect').innerHTML = '<option value="">— Selecciona —</option>';
+  document.getElementById('numberNameInput').value = '';
+  document.getElementById('numberInput').value = '';
+  
+  if (id) {
+    document.getElementById('modalTitle').innerText = 'Editar grupo';
+    document.getElementById('btnDelete').classList.remove('hidden');
+    const g = localGroups.find(group => group.id === id);
+    if (g) {
+      const opt = document.createElement('option');
+      opt.value = g.groupId;
+      opt.innerText = g.groupName;
+      opt.selected = true;
+      document.getElementById('groupSelect').appendChild(opt);
+      modalNumbers = g.numbers || [];
+    }
+  } else {
+    document.getElementById('modalTitle').innerText = 'Nuevo grupo';
+    document.getElementById('btnDelete').classList.add('hidden');
+    await loadWAGroups();
+  }
+
+  renderModalNumbers();
   document.getElementById('groupModal').classList.remove('hidden');
 }
 
-function closeModal() { document.getElementById('groupModal').classList.add('hidden'); }
-function closeModalOutside(e) { if (e.target === document.getElementById('groupModal')) closeModal(); }
+function closeModal() {
+  document.getElementById('groupModal').classList.add('hidden');
+  editingGroupId = null;
+}
 
-async function loadWAGroups(selectedId = null, selectedName = null) {
+function closeModalOutside(e) {
+  if (e.target.id === 'groupModal') closeModal();
+}
+
+async function loadWAGroups() {
+  const select = document.getElementById('groupSelect');
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">Cargando chats...</option>';
   try {
     const res = await fetch('/api/wa-groups');
-    if (!res.ok) throw new Error('No conectado');
-    const waGroups = await res.json();
-    const sel = document.getElementById('groupSelect');
-    sel.innerHTML = '<option value="">— Selecciona —</option>';
-    waGroups.forEach(g => {
+    if (!res.ok) throw new Error();
+    const list = await res.json();
+    select.innerHTML = '<option value="">— Selecciona —</option>';
+    list.forEach(c => {
       const opt = document.createElement('option');
-      opt.value = g.id; opt.textContent = g.name;
-      if (g.id === selectedId) opt.selected = true;
-      sel.appendChild(opt);
+      opt.value = c.id;
+      opt.innerText = c.name;
+      if (c.id === currentVal) opt.selected = true;
+      select.appendChild(opt);
     });
-    if (selectedId && !waGroups.find(g => g.id === selectedId) && selectedName) {
-      const opt = document.createElement('option');
-      opt.value = selectedId; opt.textContent = selectedName; opt.selected = true;
-      sel.appendChild(opt);
-    }
-  } catch (e) { showToast('Error: ' + e.message, true); }
+  } catch (e) {
+    select.innerHTML = '<option value="">❌ Conecta WhatsApp primero</option>';
+  }
+}
+
+function renderModalNumbers() {
+  const ul = document.getElementById('numberList');
+  ul.innerHTML = '';
+  modalNumbers.forEach((n, idx) => {
+    const isActive = n.active !== false;
+    const li = document.createElement('li');
+    li.className = `tag-item ${isActive ? '' : 'disabled'}`;
+    li.innerHTML = `
+      <div class="tag-click-zone" onclick="toggleNumberActive(${idx})">
+        <span class="status-indicator"></span>
+        <strong>${n.name || 'Negocio'}</strong>
+        <small>${n.number}</small>
+      </div>
+      <button class="tag-remove" onclick="removeNumber(${idx})">✕</button>
+    `;
+    ul.appendChild(li);
+  });
 }
 
 function addNumber() {
+  const numInput = document.getElementById('numberInput');
   const nameInput = document.getElementById('numberNameInput');
-  const phoneInput = document.getElementById('numberInput');
-  const phone = phoneInput.value.trim().replace(/\D/g, '');
-  const name = nameInput.value.trim();
-  if (!phone) return;
-  if (modalNums.some(n => n.number === phone)) { showToast('Ya está en la lista', true); return; }
-  modalNums.push({ number: phone, name: name || phone, active: true });
-  renderModalNums();
-  nameInput.value = ''; phoneInput.value = '';
+  const number = numInput.value.trim();
+  const name = nameInput.value.trim() || 'Negocio';
+
+  if (!number) return;
+  if (modalNumbers.some(n => n.number === number)) {
+    numInput.value = '';
+    return showToast('Ese número ya está en la lista.');
+  }
+
+  modalNumbers.push({ number, name, active: true });
+  numInput.value = '';
+  nameInput.value = '';
+  renderModalNumbers();
 }
 
-function toggleModalNum(i) { modalNums[i] = { ...modalNums[i], active: !modalNums[i].active }; renderModalNums(); }
-function removeModalNum(i) { modalNums.splice(i, 1); renderModalNums(); }
-function toggleAllModal(value) { modalNums = modalNums.map(n => ({ ...n, active: value })); renderModalNums(); }
+function removeNumber(idx) {
+  modalNumbers.splice(idx, 1);
+  renderModalNumbers();
+  if (editingGroupId) syncModalNumbersToBackend();
+}
 
-function renderModalNums() {
-  const list = document.getElementById('numberList');
-  if (!modalNums.length) { list.innerHTML = '<li class="empty" style="padding:12px 0;">Sin negocios · agrega arriba</li>'; return; }
-  list.innerHTML = modalNums.map((n, i) => `
-    <li class="number-item ${!n.active ? 'inactive' : ''}">
-      <div class="number-item-info">
-        <span class="number-item-name">${n.name || n.number}</span>
-        <span class="number-item-phone">${n.number}</span>
-      </div>
-      <button class="num-toggle ${n.active ? 'on' : 'off'}" onclick="toggleModalNum(${i})">
-        ${n.active ? 'ON' : 'OFF'}
-      </button>
-      <button class="num-del" onclick="removeModalNum(${i})">✕</button>
-    </li>
-  `).join('');
+function toggleNumberActive(idx) {
+  modalNumbers[idx].active = !modalNumbers[idx].active;
+  renderModalNumbers();
+  if (editingGroupId) syncModalNumbersToBackend();
+}
+
+function toggleAllModal(value) {
+  modalNumbers.forEach(n => n.active = value);
+  renderModalNumbers();
+  if (editingGroupId) syncModalNumbersToBackend();
+}
+
+async function syncModalNumbersToBackend() {
+  if (!editingGroupId) return;
+  try {
+    await fetch(`/api/groups/${editingGroupId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numbers: modalNumbers })
+    });
+  } catch (e) { }
 }
 
 async function saveGroup() {
-  const sel = document.getElementById('groupSelect');
-  const msg = document.getElementById('replyMessage').value.trim() || 'yo';
-  if (!sel.value) { showToast('Selecciona un grupo', true); return; }
-  const data = { groupId: sel.value, groupName: sel.options[sel.selectedIndex]?.text || 'Sin nombre', replyMessage: msg, numbers: modalNums };
-  
-  if (editingId) {
-    await fetch(`/api/groups/${editingId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    showToast('Grupo actualizado ✓');
-  } else {
-    await fetch('/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    showToast('Grupo agregado ✓');
+  const select = document.getElementById('groupSelect');
+  const groupId = select.value;
+  const groupName = select.options[select.selectedIndex]?.text;
+
+  if (!groupId) return showToast('Selecciona un grupo de WhatsApp.');
+
+  const payload = { groupId, groupName, numbers: modalNumbers };
+  const method = editingGroupId ? 'PUT' : 'POST';
+  const url = editingGroupId ? `/api/groups/${editingGroupId}` : '/api/groups';
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error();
+    closeModal();
+    showToast('Grupo guardado con éxito.');
+  } catch (e) {
+    showToast('Error al guardar grupo.');
   }
-  closeModal();
 }
 
 async function deleteGroup() {
-  if (!editingId) return;
-  await fetch(`/api/groups/${editingId}`, { method: 'DELETE' });
-  showToast('Grupo eliminado'); closeModal();
-}
-
-function updateNotifBtn() {
-  const btn = document.getElementById('btnNotif');
-  if (!('Notification' in window)) { btn.style.display = 'none'; return; }
-  btn.className = 'btn-notif ' + Notification.permission;
-}
-
-async function requestNotifPermission() {
-  if (!('Notification' in window)) { showToast('No soportado', true); return; }
-  if (Notification.permission === 'denied') { showToast('Bloqueadas en ajustes', true); return; }
-  await Notification.requestPermission(); updateNotifBtn();
-  if (Notification.permission === 'granted') showToast('¡Alertas activadas! 🔔');
-}
-
-function alertPedido(groupName) {
-  if ('vibrate' in navigator) navigator.vibrate([400, 150, 400, 150, 800]);
+  if (!editingGroupId) return;
+  if (!confirm('¿Quieres eliminar este grupo del bot?')) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    [[0, 880], [0.25, 1100], [0.5, 880], [0.75, 1320]].forEach(([delay, freq]) => {
-      const osc = ctx.createOscillator(); const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = 'sine'; osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.6, ctx.currentTime + delay);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.22);
-      osc.start(ctx.currentTime + delay); osc.stop(ctx.currentTime + delay + 0.22);
+    await fetch(`/api/groups/${editingGroupId}`, { method: 'DELETE' });
+    closeModal();
+    showToast('Grupo eliminado.');
+  } catch (e) { }
+}
+
+// ==========================================
+// 🚪 PANEL DE CUENTA (LOGOUT)
+// ==========================================
+function confirmLogout() {
+  if (!confirm('¿Seguro que quieres cerrar la sesión de WhatsApp?\nSe borrarán los archivos de autenticación del servidor.')) return;
+  const btn = document.getElementById('btnLogout');
+  btn.innerText = 'Cerrando sesión...';
+  btn.disabled = true;
+
+  fetch('/api/logout', { method: 'POST' })
+    .then(res => {
+      if (res.ok) {
+        showToast('Sesión destruida.');
+        switchTab('settings');
+      } else throw new Error();
+    })
+    .catch(() => showToast('Error al cerrar sesión.'))
+    .finally(() => {
+      btn.innerText = '🚪 Cerrar Sesión de WhatsApp';
+      btn.disabled = false;
     });
-  } catch (e) {}
-  if ('Notification' in window && Notification.permission === 'granted') new Notification('🛵 ¡PEDIDO TOMADO!', { body: groupName, requireInteraction: true });
 }
 
-async function confirmLogout() {
-  if (!confirm('¿Cerrar sesión de WhatsApp?\nTendrás que vincular el dispositivo de nuevo.')) return;
-  await fetch('/api/logout', { method: 'POST' }); showToast('Sesión cerrada');
+// ==========================================
+// 🔔 UTILERÍAS (TOASTS Y NOTIFICACIONES)
+// ==========================================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.innerText = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-function showToast(msg, isError = false) {
-  const toast = document.getElementById('toast');
-  toast.textContent = msg; toast.style.background = isError ? '#e74c3c' : '#25d366';
-  toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2500);
+function requestNotifPermission() {
+  Notification.requestPermission().then(perm => {
+    if (perm === 'granted') {
+      showToast('🔔 ¡Alertas del sistema activadas!');
+      document.getElementById('btnNotif').style.display = 'none';
+    } else {
+      showToast('Permiso de notificaciones denegado.');
+    }
+  });
 }
 
-document.getElementById('numberInput').addEventListener('keydown', e => { if (e.key === 'Enter') addNumber(); });
-document.getElementById('numberNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('numberInput').focus(); });
-
-fetch('/api/status').then(r => r.json()).then(s => updateStatusDot(s)).catch(()=>{});
-fetch('/api/groups').then(r => r.json()).then(g => { groups = g; renderGroups(); }).catch(()=>{});
-updateNotifBtn();
+if (Notification.permission === 'granted') {
+  document.getElementById('btnNotif').style.display = 'none';
+}
