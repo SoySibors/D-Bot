@@ -69,8 +69,6 @@ async function handleMessage(m) {
 
     const from = msg.key.remoteJid;
     const group = groups.find(g => g.groupId === from);
-    
-    // Si el grupo no está creado en el panel, ignoramos todo
     if (!group) return;
 
     let isSticker = false;
@@ -83,17 +81,17 @@ async function handleMessage(m) {
     if (!isSticker) return;
 
     const sender = msg.key.participant || msg.key.remoteJid;
-    const senderName = msg.pushName || 'Negocio Desconocido';
+    
+    // Extracción rápida del ID
     const cleanId = sender.replace('@lid', '').replace('@s.whatsapp.net', '');
 
-    // 1. REVISAR SI EL NEGOCIO YA ESTÁ EN LA LISTA (prendido o apagado)
     const negocioConfig = group.numbers.find(n => {
         const num = typeof n === 'string' ? n : n.number;
         return numbersMatch(sender, num);
     });
 
-    // 2. LÓGICA DEL RADAR (Siempre activo)
     if (!negocioConfig) {
+        const senderName = msg.pushName || 'Negocio Desconocido';
         const yaExiste = discovered.find(d => d.groupId === from && d.lid === cleanId);
         if (!yaExiste) {
             discovered.push({
@@ -103,33 +101,30 @@ async function handleMessage(m) {
                 name: senderName,
                 time: Date.now()
             });
-            // Subimos el límite a 500 para que sea un buen historial
             if (discovered.length > 500) discovered.shift(); 
             saveDiscovered();
-            console.log(`[BOT] 📡 Nuevo en radar: ${senderName}`);
             if (io) io.emit('nuevo-descubierto', { groupId: from });
         }
-        return; // Si es nuevo, lo guardamos y abortamos el disparo
+        return; 
     }
 
-    // 3. LÓGICA DEL GATILLO (Solo si el grupo y el número están activos)
     if (!group.active) return;
-    
     const isActive = typeof negocioConfig === 'string' ? true : negocioConfig.active !== false;
     if (!isActive) return;
 
-    // ¡FUEGO!
-    groups.forEach(g => g.active = false);
-    if (io) io.emit('groups', groups);
+    // ==========================================
+    // DISPARO DE VELOCIDAD EXTREMA (Sin 'await')
+    // El mensaje se empuja directo a la red sin esperar.
+    // ==========================================
+    sock.sendMessage(from, { text: group.replyMessage }).catch(e => console.error('[BOT] Error al disparar:', e));
 
-    try {
-        await sock.sendMessage(from, { text: group.replyMessage });
-        console.log(`[BOT] ✅ ¡Pedido tomado en ${group.groupName}!`);
-        if (io) io.emit('pedido-tomado', { groupName: group.groupName });
-        saveGroups();
-    } catch (e) {
-        console.error('[BOT] Error al enviar respuesta:', e.message);
+    // Todo lo demás se ejecuta en segundo plano después de haber disparado
+    groups.forEach(g => g.active = false);
+    if (io) {
+        io.emit('groups', groups);
+        io.emit('pedido-tomado', { groupName: group.groupName });
     }
+    saveGroups();
 }
 
 async function connectToWhatsApp() {
