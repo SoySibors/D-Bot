@@ -19,12 +19,14 @@ const SESSION_PATH = path.join(DATA_DIR, 'session_auth');
 const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
 const DISCOVERED_FILE = path.join(DATA_DIR, 'discovered.json'); 
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json'); 
+const HISTORIAL_FILE = path.join(DATA_DIR, 'historial.json'); 
 
 let sock = null;
 let io = null;
 let groups = [];
 let discovered = []; 
-let settings = { messages: ['yo'] }; // Configuración global por defecto
+let settings = { messages: ['yo'] }; 
+let historial = [];
 let status = { connected: false, whatsappStatus: 'disconnected', needsPairing: true }; 
 let typingInterval = null;
 
@@ -38,7 +40,13 @@ function loadFiles() {
             discovered = JSON.parse(fs.readFileSync(DISCOVERED_FILE, 'utf8'));
         }
         if (fs.existsSync(SETTINGS_FILE)) {
-            settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+            const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+            if (parsed && Array.isArray(parsed.messages)) {
+                settings = parsed;
+            }
+        }
+        if (fs.existsSync(HISTORIAL_FILE)) {
+            historial = JSON.parse(fs.readFileSync(HISTORIAL_FILE, 'utf8'));
         }
     } catch (e) {
         console.error('[BOT] Error leyendo archivos:', e.message);
@@ -57,6 +65,10 @@ function saveSettings() {
     try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); } catch (e) { }
 }
 
+function saveHistorial() {
+    try { fs.writeFileSync(HISTORIAL_FILE, JSON.stringify(historial, null, 2)); } catch (e) { }
+}
+
 function numbersMatch(senderId, storedNumber) {
     const cleanStored = storedNumber.replace(/\D/g, '');
     const cleanSender = senderId.replace(/\D/g, '');
@@ -70,31 +82,22 @@ function numbersMatch(senderId, storedNumber) {
     return false;
 }
 
-// SIMULADOR ANTI-BAN: Acción aleatoria de escribir en reposo
 function startPassiveTypingSimulation() {
     if (typingInterval) clearInterval(typingInterval);
-    
     typingInterval = setInterval(async () => {
         if (!sock || !status.connected) return;
-        
-        // Filtrar solo los grupos que el usuario tiene activos/cazando ahorita
         const activeGroups = groups.filter(g => g.active);
         if (activeGroups.length === 0) return;
-        
-        // Elegir UN SOLO grupo al azar de los activos
         const randomGroup = activeGroups[Math.floor(Math.random() * activeGroups.length)];
-        
         try {
-            // Mandar señal de "Escribiendo..." por 6 segundos
             await sock.sendPresenceUpdate('composing', randomGroup.groupId);
-            
             setTimeout(async () => {
                 if (sock && status.connected) {
                     await sock.sendPresenceUpdate('paused', randomGroup.groupId);
                 }
-            }, 6000);
+            }, 5000);
         } catch (e) { }
-    }, 180000 + Math.random() * 60000); // Cada 3-4 minutos de forma irregular
+    }, 180000); 
 }
 
 async function handleMessage(m) {
@@ -104,7 +107,7 @@ async function handleMessage(m) {
 
     const from = msg.key.remoteJid;
     const group = groups.find(g => g.groupId === from);
-    if (!group) return; // Ignorar grupos no creados en el bot
+    if (!group) return; 
 
     let isSticker = false;
     const messageContent = msg.message;
@@ -123,7 +126,6 @@ async function handleMessage(m) {
         return numbersMatch(sender, num);
     });
 
-    // LÓGICA DEL RADAR PERMANENTE: Se ejecuta siempre si el grupo existe en el panel
     if (!negocioConfig) {
         const senderName = msg.pushName || 'Negocio Desconocido';
         const yaExiste = discovered.find(d => d.groupId === from && d.lid === cleanId);
@@ -142,19 +144,17 @@ async function handleMessage(m) {
         return; 
     }
 
-    // LÓGICA DEL GATILLO: Solo dispara si el interruptor del grupo está activo
     if (!group.active) return;
     const isActive = typeof negocioConfig === 'string' ? true : negocioConfig.active !== false;
     if (!isActive) return;
 
-    // SELECCIÓN ALEATORIA ANTI-BAN: Elige un mensaje al azar de tus tags globales
-    const listaMensajes = settings.messages && settings.messages.length > 0 ? settings.messages : ['yo'];
+    // Protección extra por si las moscas
+    const listaMensajes = settings && Array.isArray(settings.messages) && settings.messages.length > 0 ? settings.messages : ['yo'];
     const mensajeAleatorio = listaMensajes[Math.floor(Math.random() * listaMensajes.length)];
 
-    // DISPARO INMEDIATO EN MODO DIOS (Cero await para velocidad atómica)
+    // DISPARO INMEDIATO EN MODO DIOS ⚡
     sock.sendMessage(from, { text: mensajeAleatorio })
         .then(async () => {
-            // Después de enviar con éxito, simula que te quedas escribiendo 3 segundos para despistar
             if (sock) {
                 await sock.sendPresenceUpdate('composing', from);
                 setTimeout(() => { if (sock) sock.sendPresenceUpdate('paused', from); }, 3000);
@@ -162,11 +162,25 @@ async function handleMessage(m) {
         })
         .catch(e => console.error('[BOT] Error al disparar:', e));
 
-    // Desactivar interruptores en backend de inmediato
+    // Añadir de inmediato a la lista de historial persistente
+    const nuevoRegistro = {
+        id: 'ped_' + Date.now(),
+        groupName: group.groupName,
+        businessName: negocioConfig.name || cleanId,
+        time: Date.now(),
+        phraseUsed: mensajeAleatorio,
+        status: 'pending'
+    };
+    historial.unshift(nuevoRegistro);
+    if (historial.length > 300) historial.pop();
+    saveHistorial();
+
+    // Apagar switches
     groups.forEach(g => g.active = false);
     if (io) {
         io.emit('groups', groups);
-        io.emit('pedido-tomado', { groupName: group.groupName });
+        io.emit('historial', historial);
+        io.emit('pedido-tomado', nuevoRegistro);
     }
     saveGroups();
 }
@@ -207,8 +221,8 @@ async function connectToWhatsApp() {
         } else if (connection === 'open') {
             status = { connected: true, whatsappStatus: 'ready', needsPairing: false };
             if (io) io.emit('status', status);
-            console.log('[BOT] ¡Conectado a WhatsApp con éxito!');
-            startPassiveTypingSimulation(); // Arranca el simulador fantasma
+            console.log('[BOT] ¡Conectado con éxito!');
+            startPassiveTypingSimulation();
         }
     });
 
@@ -222,6 +236,7 @@ module.exports = {
     getStatus: () => status,
     getGroupsConfig: () => groups,
     getSettings: () => settings,
+    getHistorial: () => historial,
     
     saveSettingsConfig: (data) => {
         if (data && Array.isArray(data.messages)) {
@@ -231,23 +246,27 @@ module.exports = {
         if (io) io.emit('settings', settings);
         return settings;
     },
-    
+    resolvePedido: (id, targetStatus) => {
+        const item = historial.find(p => p.id === id);
+        if (item) {
+            item.status = targetStatus;
+            saveHistorial();
+        }
+        if (io) io.emit('historial', historial);
+        return historial;
+    },
     getDiscovered: (waGroupId) => discovered.filter(d => d.groupId === waGroupId).reverse(),
     removeDiscovered: (id) => {
         discovered = discovered.filter(d => d.id !== id);
         saveDiscovered();
     },
-
     requestPairingCodeAuth: async (phoneNumber) => {
-        if (!sock) throw new Error('El sistema está iniciando.');
-        if (!status.needsPairing) throw new Error('Ya hay una sesión iniciada.');
+        if (!sock) throw new Error('Iniciando sistema...');
         try {
             const cleanNumber = phoneNumber.replace(/\D/g, '');
             return await sock.requestPairingCode(cleanNumber);
         } catch (error) {
-            if (error?.message?.includes('Connection Closed')) throw new Error('El servidor de WA no está listo. Espera unos segundos.');
-            else if (error?.message?.includes('rate-overlimit')) throw new Error('WhatsApp bloqueó temporalmente este número. Intenta más tarde.');
-            throw new Error('Asegúrate de incluir el código de país correcto.');
+            throw new Error('Error al solicitar código.');
         }
     },
     addGroup: (data) => {
@@ -255,7 +274,6 @@ module.exports = {
             id: Date.now().toString(),
             groupId: data.groupId,
             groupName: data.groupName,
-            replyMessage: 'yo', // Obsoleto por los tags globales, lo dejamos por compatibilidad estructural
             numbers: (data.numbers || []).map(n => typeof n === 'string' ? { number: n, name: n, active: true } : n),
             active: false
         };
@@ -266,7 +284,7 @@ module.exports = {
     },
     updateGroup: (id, data) => {
         const index = groups.findIndex(g => g.id === id);
-        if (index === -1) throw new Error('Grupo no encontrado');
+        if (index === -1) throw new Error('No encontrado');
         const wasActive = groups[index].active;
         const numbers = (data.numbers || groups[index].numbers).map(n => typeof n === 'string' ? { number: n, name: n, active: true } : n);
         groups[index] = { ...groups[index], ...data, id, active: wasActive, numbers };
@@ -287,26 +305,8 @@ module.exports = {
         const group = groups.find(g => g.id === id);
         if (group) { group.active = false; saveGroups(); if (io) io.emit('groups', groups); }
     },
-    toggleNumber: (groupId, numIndex) => {
-        const group = groups.find(g => g.id === groupId);
-        if (group && group.numbers[numIndex]) {
-            const n = group.numbers[numIndex];
-            group.numbers[numIndex] = typeof n === 'string' ? { number: n, name: n, active: false } : { ...n, active: !n.active };
-            saveGroups();
-            if (io) io.emit('groups', groups);
-            return group.numbers[numIndex];
-        }
-    },
-    toggleAllNumbers: (groupId, value) => {
-        const group = groups.find(g => g.id === groupId);
-        if (group) {
-            group.numbers = group.numbers.map(n => typeof n === 'string' ? { number: n, name: n, active: value } : { ...n, active: value });
-            saveGroups();
-            if (io) io.emit('groups', groups);
-        }
-    },
     getWAGroups: async () => {
-        if (!status.connected || !sock) throw new Error('WhatsApp no conectado');
+        if (!status.connected || !sock) throw new Error('Desconectado');
         const chats = await sock.groupFetchAllParticipating();
         return Object.values(chats).map(c => ({ id: c.id, name: c.subject }));
     },
