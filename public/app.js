@@ -8,23 +8,61 @@ socket.on('groups', (g) => { groups = g; renderGroups(); });
 socket.on('qr', (dataUrl) => { });
 socket.on('pedido-tomado', ({ groupName }) => alertPedido(groupName));
 
-// NUEVO EVENTO: Atrapa el ID que manda el bot y lo dibuja en la caja negra
+// EVENTO DE RADAR: Dibuja tarjetas interactivas para agregar rápido
 socket.on('nuevo-id', (data) => {
   const box = document.getElementById('rastreadorBox');
-  if (box.textContent.includes('Esperando')) box.innerHTML = '';
+  if (box.textContent.includes('Escaneando')) box.innerHTML = '';
   
-  const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+  const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   const el = document.createElement('div');
-  el.style.marginBottom = '12px';
-  el.style.paddingBottom = '12px';
-  el.style.borderBottom = '1px solid #1a1d27';
   
+  // Estilo de la tarjetita
+  el.style.marginBottom = '10px';
+  el.style.background = '#1a1d27';
+  el.style.padding = '12px';
+  el.style.borderRadius = '10px';
+  el.style.border = '1px solid #252836';
+  el.style.display = 'flex';
+  el.style.justifyContent = 'space-between';
+  el.style.alignItems = 'center';
+  
+  // Cuidamos las comillas simples en el nombre para no romper el botón de JS
+  const safeName = data.name.replace(/'/g, "\\'");
+
   el.innerHTML = `
-    <span style="color:#888; font-size:0.75rem;">[${time}]</span> <span style="color:#fff;">${data.groupName}</span><br>
-    <div style="margin-top:6px;">ID: <b style="color:#25d366; font-size:1.15rem; user-select:all;">${data.id}</b></div>
+    <div style="flex: 1; min-width: 0; padding-right: 10px;">
+      <div style="color:#888; font-size:0.75rem; margin-bottom: 4px;">[${time}] En grupo: ${data.groupName}</div>
+      <div style="color:#fff; font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${data.name}</div>
+      <div style="color:#25d366; font-size:0.75rem; font-family: monospace; margin-top: 2px;">ID: ${data.id}</div>
+    </div>
+    <button onclick="quickAdd('${data.groupId}', '${safeName}', '${data.id}')" style="background: #25d366; color: #000; border: none; padding: 8px 12px; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer; flex-shrink: 0; box-shadow: 0 4px 10px rgba(37,211,102,0.2);">+ Agregar</button>
   `;
   box.prepend(el);
 });
+
+// Función "One-Click" que abre la ventana y rellena todo
+window.quickAdd = function(groupId, name, id) {
+    openModal(groupId);
+    
+    // Un pequeño retraso para asegurar que el modal se abrió y limpió
+    setTimeout(() => {
+        document.getElementById('numberNameInput').value = name;
+        document.getElementById('numberInput').value = id;
+        
+        // Destello visual en el botón "+" para guiar al usuario
+        const btnAdd = document.getElementById('btnAddNumForm');
+        if (btnAdd) {
+            btnAdd.style.transform = 'scale(1.2)';
+            btnAdd.style.background = '#00ff00';
+            setTimeout(() => {
+                btnAdd.style.transform = 'scale(1)';
+                btnAdd.style.background = '#252836';
+            }, 500);
+        }
+        
+        showToast('Datos copiados. Toca "+" para confirmar.');
+    }, 150);
+};
 
 async function requestWaCode() {
   const phoneInput = document.getElementById('waPhoneNumber').value.trim().replace(/\D/g, '');
