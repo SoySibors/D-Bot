@@ -6,12 +6,13 @@ let localSettings = { messages: ['yo'] };
 let localHistorial = [];
 
 let activeTab = 'groups';
-let activeTimeRange = 'day'; // day, week, month
-let selectedDateString = ''; // Formato YYYY-MM-DD para el filtro diario
+let activeTimeRange = 'day'; 
+let selectedDateString = ''; 
 
 let editingGroupId = null;
 let modalNumbers = [];
 let activeRadarGroupId = null;
+let currentRadarData = []; // Guardamos los datos del radar actual para el botón mágico
 
 function initDefaultDate() {
   const hoy = new Date();
@@ -142,7 +143,6 @@ function renderHistorial() {
 
   const registrosFiltrados = localHistorial.filter(p => {
     const fechaPedido = new Date(p.time);
-    
     if (activeTimeRange === 'day') {
       const yyyy = fechaPedido.getFullYear();
       const mm = String(fechaPedido.getMonth() + 1).padStart(2, '0');
@@ -150,12 +150,8 @@ function renderHistorial() {
       const stringFechaPedido = `${yyyy}-${mm}-${dd}`;
       return stringFechaPedido === selectedDateString;
     } 
-    else if (activeTimeRange === 'week') {
-      return p.time >= limiteSemana;
-    } 
-    else if (activeTimeRange === 'month') {
-      return p.time >= limiteMes;
-    }
+    else if (activeTimeRange === 'week') return p.time >= limiteSemana;
+    else if (activeTimeRange === 'month') return p.time >= limiteMes;
     return true;
   });
 
@@ -254,7 +250,7 @@ async function toggleGroupHunting(id, isChecked) {
   try { await fetch(`/api/groups/${id}/${isChecked ? 'activate' : 'deactivate'}`, { method: 'POST' }); } catch (e) { renderGroups(localGroups); }
 }
 
-// ── RADAR PERSISTENTE POR GRUPO ──────────────────────────────────────
+// ── RADAR PERSISTENTE POR GRUPO Y ESCANEO MASIVO ─────────────────────
 async function openRadar(waGroupId, groupName) {
   activeRadarGroupId = waGroupId;
   document.getElementById('radarTitle').innerText = `📡 Radar: ${groupName}`;
@@ -266,12 +262,14 @@ function closeRadarOutside(e) { if (e.target.id === 'radarModal') closeRadar(); 
 async function loadRadarList(waGroupId) {
   const listCont = document.getElementById('radarList');
   try {
-    const res = await fetch(`/api/groups/${waGroupId}/discovered`); const data = await res.json();
+    const res = await fetch(`/api/groups/${waGroupId}/discovered`); 
+    currentRadarData = await res.json();
+    
     listCont.innerHTML = '';
-    if (data.length === 0) {
+    if (currentRadarData.length === 0) {
       listCont.innerHTML = '<p class="hint" style="text-align:center; padding: 20px 0;">Esperando códigos de stickers en este grupo...</p>'; return;
     }
-    data.forEach(item => {
+    currentRadarData.forEach(item => {
       const timeStr = new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const row = document.createElement('div'); row.className = 'radar-row';
       row.innerHTML = `
@@ -284,6 +282,7 @@ async function loadRadarList(waGroupId) {
     });
   } catch (e) { listCont.innerHTML = '<p class="hint">Error cargando el radar.</p>'; }
 }
+
 async function addFromRadar(waGroupId, lid, name) {
   const group = localGroups.find(g => g.groupId === waGroupId); if (!group) return;
   if (group.numbers.some(n => n.number === lid)) return showToast('Este negocio ya existe.');
@@ -294,6 +293,34 @@ async function addFromRadar(waGroupId, lid, name) {
     });
     showToast(`✅ Agregado: ${name}`);
   } catch (e) { }
+}
+
+async function addAllFromRadar() {
+  if (!activeRadarGroupId || currentRadarData.length === 0) return;
+  const group = localGroups.find(g => g.groupId === activeRadarGroupId);
+  if (!group) return;
+
+  let addedCount = 0;
+  const updatedNumbers = [...group.numbers];
+
+  currentRadarData.forEach(item => {
+    // Si no existe, lo jalamos a la lista
+    if (!updatedNumbers.some(n => n.number === item.lid)) {
+      updatedNumbers.push({ number: item.lid, name: item.name, active: true });
+      addedCount++;
+    }
+  });
+
+  if (addedCount === 0) {
+    return showToast('Ya tienes agregados a todos los negocios de este radar.');
+  }
+
+  try {
+    await fetch(`/api/groups/${group.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: updatedNumbers })
+    });
+    showToast(`⚡ ¡Mágico! Se agregaron ${addedCount} negocios nuevos.`);
+  } catch (e) { showToast('Error al procesar los negocios.'); }
 }
 
 // ── RESPUESTAS ROTATIVAS GLOBALES (TAGS) ──────────────────────────────
@@ -323,7 +350,7 @@ async function saveGlobalSettings(messagesArray) {
   } catch (e) { }
 }
 
-// ── MODAL GRUPOS (CREAR / EDITAR) ────────────────────────────────────
+// ── MODAL GRUPOS (CREAR / EDITAR NEGOCIOS) ───────────────────────────
 async function openModal(id = null) {
   editingGroupId = id; modalNumbers = [];
   document.getElementById('groupSelect').innerHTML = '<option value="">— Selecciona —</option>';
@@ -351,6 +378,7 @@ async function loadWAGroups() {
     list.forEach(c => { const opt = document.createElement('option'); opt.value = c.id; opt.innerText = c.name; select.appendChild(opt); });
   } catch (e) { select.innerHTML = '<option value="">❌ Conecta WhatsApp primero</option>'; }
 }
+
 function renderModalNumbers() {
   const ul = document.getElementById('numberList'); ul.innerHTML = '';
   modalNumbers.forEach((n, idx) => {
@@ -358,10 +386,28 @@ function renderModalNumbers() {
     li.innerHTML = `
       <div class="tag-click-zone" onclick="toggleNumberActive(${idx})">
         <span class="status-indicator"></span><strong>${n.name || 'Negocio'}</strong><small>${n.number}</small>
-      </div><button class="tag-remove" onclick="removeNumber(${idx})">✕</button>
+      </div>
+      <div class="tag-actions">
+        <button class="tag-edit" onclick="editNumberName(${idx}, event)" title="Editar Nombre">✏️</button>
+        <button class="tag-remove" onclick="removeNumber(${idx})" title="Eliminar">✕</button>
+      </div>
     `; ul.appendChild(li);
   });
 }
+
+// FUNCIÓN PARA EDITAR EL NOMBRE DEL NEGOCIO (NATIVA MÓVIL)
+function editNumberName(idx, event) {
+  event.stopPropagation(); // Evitar que el click encienda o apague el switch por accidente
+  const currentName = modalNumbers[idx].name || 'Negocio';
+  const newName = prompt('Corrige el nombre del negocio:', currentName);
+  
+  if (newName !== null && newName.trim() !== '') {
+    modalNumbers[idx].name = newName.trim();
+    renderModalNumbers();
+    if (editingGroupId) syncModalNumbersToBackend();
+  }
+}
+
 function addNumber() {
   const numInput = document.getElementById('numberInput'); const nameInput = document.getElementById('numberNameInput');
   const number = numInput.value.trim(); const name = nameInput.value.trim() || 'Negocio'; if (!number) return;
@@ -391,7 +437,7 @@ async function deleteGroup() {
 // ── NOTIFICACIONES Y LOGOUT ──────────────────────────────────────────
 function confirmLogout() {
   if (!confirm('¿Cerrar sesión de WhatsApp del servidor?')) return;
-  fetch('/api/logout').then(() => location.reload());
+  fetch('/api/logout', { method: 'POST' }).then(() => location.reload());
 }
 
 function showToast(msg) {
