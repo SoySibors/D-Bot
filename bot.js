@@ -82,6 +82,7 @@ async function handleMessage(m) {
     if (!isSticker) return;
 
     const sender = msg.key.participant || msg.key.remoteJid;
+    const senderName = msg.pushName || 'Negocio Desconocido'; // Atrapamos el nombre de WhatsApp
 
     const negocioConfig = group.numbers.find(n => {
         const num = typeof n === 'string' ? n : n.number;
@@ -89,11 +90,16 @@ async function handleMessage(m) {
         return active && numbersMatch(sender, num);
     });
 
-    // Si el negocio NO está registrado, mandamos el ID a la caja web
+    // Si el negocio NO está registrado, mandamos el ID y Nombre a la caja web
     if (!negocioConfig) {
         const cleanId = sender.replace('@lid', '').replace('@s.whatsapp.net', '');
-        console.log(`[BOT] ❌ Nuevo negocio detectado. ID enviado a la web: ${cleanId}`);
-        if (io) io.emit('nuevo-id', { groupName: group.groupName, id: cleanId });
+        console.log(`[BOT] ❌ Nuevo negocio: ${senderName} (${cleanId})`);
+        if (io) io.emit('nuevo-id', { 
+            groupName: group.groupName, 
+            groupId: group.id,
+            id: cleanId,
+            name: senderName
+        });
         return;
     }
 
