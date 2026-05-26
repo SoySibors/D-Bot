@@ -37,10 +37,10 @@
     </section>
 
     <section class="card">
-      <h2>📡 Rastreador de IDs</h2>
-      <p class="hint">Si un negocio no registrado manda un sticker, su ID exacto aparecerá aquí abajo.</p>
-      <div id="rastreadorBox" style="background: #0a0c10; color: #25d366; font-family: monospace; padding: 12px; border-radius: 10px; height: 130px; overflow-y: auto; font-size: 0.85rem; border: 1px dashed #252836; user-select: text;">
-        <div style="color: #555;">Esperando stickers en los grupos...</div>
+      <h2>Radar de Negocios Nuevos 📡</h2>
+      <p class="hint">Cuando un negocio no registrado envíe un sticker, aparecerá aquí abajo. Toca "+ Agregar" para guardarlo en un solo click.</p>
+      <div id="rastreadorBox" style="background: #0a0c10; padding: 12px; border-radius: 10px; height: 160px; overflow-y: auto; border: 1px dashed #252836;">
+        <div style="color: #555; text-align: center; margin-top: 50px;">Escaneando grupos en vivo...</div>
       </div>
     </section>
 
@@ -83,8 +83,8 @@
         <input type="text" id="numberNameInput" placeholder="Ej: Burger St" style="margin-bottom:8px;width:100%;" />
         <p class="hint">Número o ID Rastreado</p>
         <div class="row">
-          <input type="tel" id="numberInput" placeholder="Pega el ID aquí..." />
-          <button class="btn-sm" onclick="addNumber()">+</button>
+          <input type="tel" id="numberInput" placeholder="ID del negocio..." />
+          <button class="btn-sm" onclick="addNumber()" id="btnAddNumForm">+</button>
         </div>
         <ul id="numberList" class="tag-list"></ul>
       </div>
