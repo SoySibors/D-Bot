@@ -30,6 +30,9 @@ let historial = [];
 let status = { connected: false, whatsappStatus: 'disconnected', needsPairing: true }; 
 let typingInterval = null;
 
+// 🔒 FLAG ANTI RACE CONDITION
+let disparando = false;
+
 function loadFiles() {
     try {
         if (fs.existsSync(GROUPS_FILE)) {
@@ -148,11 +151,19 @@ async function handleMessage(m) {
     const isActive = typeof negocioConfig === 'string' ? true : negocioConfig.active !== false;
     if (!isActive) return;
 
-    // Protección extra por si las moscas
+    // 🔒 PROTECCIÓN RACE CONDITION — solo un disparo a la vez
+    if (disparando) return;
+    disparando = true;
+
     const listaMensajes = settings && Array.isArray(settings.messages) && settings.messages.length > 0 ? settings.messages : ['yo'];
     const mensajeAleatorio = listaMensajes[Math.floor(Math.random() * listaMensajes.length)];
 
-    // DISPARO INMEDIATO EN MODO DIOS ⚡
+    // Apagar switches ANTES de disparar para máxima protección
+    groups.forEach(g => { g.active = false; });
+    saveGroups();
+    if (io) io.emit('groups', groups);
+
+    // DISPARO ⚡
     sock.sendMessage(from, { text: mensajeAleatorio })
         .then(async () => {
             if (sock) {
@@ -160,9 +171,12 @@ async function handleMessage(m) {
                 setTimeout(() => { if (sock) sock.sendPresenceUpdate('paused', from); }, 3000);
             }
         })
-        .catch(e => console.error('[BOT] Error al disparar:', e));
+        .catch(e => console.error('[BOT] Error al disparar:', e))
+        .finally(() => {
+            // 🔓 Liberar flag siempre, haya error o no
+            disparando = false;
+        });
 
-    // Añadir de inmediato a la lista de historial persistente
     const nuevoRegistro = {
         id: 'ped_' + Date.now(),
         groupName: group.groupName,
@@ -175,14 +189,10 @@ async function handleMessage(m) {
     if (historial.length > 300) historial.pop();
     saveHistorial();
 
-    // Apagar switches
-    groups.forEach(g => g.active = false);
     if (io) {
-        io.emit('groups', groups);
         io.emit('historial', historial);
         io.emit('pedido-tomado', nuevoRegistro);
     }
-    saveGroups();
 }
 
 async function connectToWhatsApp() {
@@ -213,6 +223,7 @@ async function connectToWhatsApp() {
         }
         if (connection === 'close') {
             if (typingInterval) clearInterval(typingInterval);
+            disparando = false; // 🔓 Reset flag si se desconecta
             const code = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = code !== DisconnectReason.loggedOut;
             status = { connected: false, whatsappStatus: 'disconnected', needsPairing: true };
@@ -312,6 +323,7 @@ module.exports = {
     },
     logout: async () => {
         if (typingInterval) clearInterval(typingInterval);
+        disparando = false;
         if (sock) { try { await sock.logout(); } catch (e) { } }
         if (fs.existsSync(SESSION_PATH)) fs.rmSync(SESSION_PATH, { recursive: true, force: true });
         status = { connected: false, whatsappStatus: 'disconnected', needsPairing: true };
