@@ -6,9 +6,23 @@ let localSettings = { messages: ['yo'] };
 let localHistorial = [];
 
 let activeTab = 'groups';
+let activeTimeRange = 'day'; // day, week, month
+let selectedDateString = ''; // Formato YYYY-MM-DD para el filtro diario
+
 let editingGroupId = null;
 let modalNumbers = [];
 let activeRadarGroupId = null;
+
+// Inicializar fecha de hoy al cargar la app de forma nativa
+function initDefaultDate() {
+  const hoy = new Date();
+  const yyyy = hoy.getFullYear();
+  const mm = String(hoy.getMonth() + 1).padStart(2, '0');
+  const dd = String(hoy.getDate()).padStart(2, '0');
+  selectedDateString = `${yyyy}-${mm}-${dd}`;
+  const inputDate = document.getElementById('historyDatePicker');
+  if (inputDate) inputDate.value = selectedDateString;
+}
 
 function switchTab(tabId) {
   activeTab = tabId;
@@ -21,6 +35,26 @@ function switchTab(tabId) {
   if (tabId === 'groups') renderGroups(localGroups);
   if (tabId === 'history') renderHistorial();
   if (tabId === 'panel') renderTags();
+}
+
+// ── CONTROL DE RANGOS CRONOLÓGICOS (NUEVO) ───────────────────────────
+function switchTimeRange(range) {
+  activeTimeRange = range;
+  document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(`timeBtn-${range}`).classList.add('active');
+
+  const pickerCont = document.getElementById('datePickerContainer');
+  if (range === 'day') {
+    pickerCont.classList.remove('hidden');
+  } else {
+    pickerCont.classList.add('hidden');
+  }
+  renderHistorial();
+}
+
+function handleDateChange(newDate) {
+  selectedDateString = newDate;
+  renderHistorial();
 }
 
 // ── MANEJO DE SOCKETS ──────────────────────────────────────────────
@@ -48,10 +82,9 @@ socket.on('nuevo-descubierto', (data) => {
 
 socket.on('pedido-tomado', (pedido) => {
   showToast(`🚀 ¡Gatillo enviado a: ${pedido.businessName}!`);
-  // Lanzar notificación sonora y visual nativa si hay permiso
   if (Notification.permission === 'granted') {
     new Notification('🛵 Proyecto D-Bot', {
-      body: `Disparado en ${pedido.groupName} para ${pedido.businessName}. ¡Confirma si lo ganaste!`,
+      body: `Disparado en ${pedido.groupName} para ${pedido.businessName}.`,
       icon: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🛵</text></svg>'
     });
   }
@@ -97,7 +130,7 @@ async function requestWaCode() {
   } catch (e) { showToast(e.message); btn.innerText = 'Generando código'; btn.disabled = false; }
 }
 
-// ── RENDERIZADO DE HISTORIAL Y MÉTRICAS ─────────────────────────────
+// ── MOTOR DE FILTRADO AVANZADO DE MÉTRICAS (MÓVIL) ───────────────────
 function renderHistorial() {
   const container = document.getElementById('historyList');
   container.innerHTML = '';
@@ -105,7 +138,39 @@ function renderHistorial() {
   let wonCount = 0;
   let lostCount = 0;
 
-  localHistorial.forEach(p => {
+  const ahora = Date.now();
+  
+  // Límites temporales limpios
+  const limiteSemana = ahora - (7 * 24 * 60 * 60 * 1000);
+  const limiteMes = ahora - (30 * 24 * 60 * 60 * 1000);
+
+  // Filtrar los datos en el cliente al vuelo
+  const registrosFiltrados = localHistorial.filter(p => {
+    const fechaPedido = new Date(p.time);
+    
+    if (activeTimeRange === 'day') {
+      const yyyy = fechaPedido.getFullYear();
+      const mm = String(fechaPedido.getMonth() + 1).padStart(2, '0');
+      const dd = String(fechaPedido.getDate()).padStart(2, '0');
+      const stringFechaPedido = `${yyyy}-${mm}-${dd}`;
+      return stringFechaPedido === selectedDateString;
+    } 
+    else if (activeTimeRange === 'week') {
+      return p.time >= limiteSemana;
+    } 
+    else if (activeTimeRange === 'month') {
+      return p.time >= limiteMes;
+    }
+    return true;
+  });
+
+  // Título visual adaptativo
+  const sectionTitle = document.getElementById('historySectionTitle');
+  if (activeTimeRange === 'day') sectionTitle.innerText = `Cacerías del día (${selectedDateString})`;
+  if (activeTimeRange === 'week') sectionTitle.innerText = `Cacerías de la Semana (Últimos 7 días)`;
+  if (activeTimeRange === 'month') sectionTitle.innerText = `Cacerías del Mes (Últimos 30 días)`;
+
+  registrosFiltrados.forEach(p => {
     if (p.status === 'won') wonCount++;
     if (p.status === 'lost') lostCount++;
 
@@ -147,8 +212,8 @@ function renderHistorial() {
   document.getElementById('countWon').innerText = wonCount;
   document.getElementById('countLost').innerText = lostCount;
 
-  if (localHistorial.length === 0) {
-    container.innerHTML = '<div class="empty-state">El historial está limpio.<br>Los disparos en la calle aparecerán aquí.</div>';
+  if (registrosFiltrados.length === 0) {
+    container.innerHTML = '<div class="empty-state">No hay registros para este período.</div>';
   }
 }
 
@@ -159,7 +224,6 @@ async function resolvePedido(id, status) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status })
     });
-    // El servidor emitirá el cambio y actualizará la lista sola
   } catch (e) { showToast('Error al registrar decisión.'); }
 }
 
@@ -333,7 +397,7 @@ async function deleteGroup() {
 // ── NOTIFICACIONES Y LOGOUT ──────────────────────────────────────────
 function confirmLogout() {
   if (!confirm('¿Cerrar sesión de WhatsApp del servidor?')) return;
-  fetch('/api/logout', { method: 'POST' }).then(() => location.reload());
+  fetch('/api/logout').then(() => location.reload());
 }
 
 function showToast(msg) {
@@ -351,13 +415,14 @@ function requestNotifPermission() {
   });
 }
 
-// Revisión inicial de permisos de alertas al cargar la app
-if (Notification.permission === 'granted') {
-  setTimeout(() => {
+// Arranque inicial automático
+document.addEventListener('DOMContentLoaded', () => {
+  initDefaultDate();
+  if (Notification.permission === 'granted') {
     if(document.getElementById('btnNotif')) document.getElementById('btnNotif').classList.add('hidden');
     if(document.getElementById('txtNotifOk')) document.getElementById('txtNotifOk').classList.remove('hidden');
-  }, 500);
-}
+  }
+});
 
 // Carga inicial de datos de historial
 fetch('/api/historial').then(res => res.json()).then(data => { localHistorial = data; renderHistorial(); });
