@@ -14,6 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 bot.setIO(io);
 
+// VINCULACIÓN DE WHATSAPP
 app.post('/api/request-code', async (req, res) => {
   try {
     const code = await bot.requestPairingCodeAuth(req.body.phone);
@@ -26,6 +27,7 @@ app.post('/api/request-code', async (req, res) => {
 app.get('/api/status', (req, res) => res.json(bot.getStatus()));
 app.get('/api/groups', (req, res) => res.json(bot.getGroupsConfig()));
 
+// CONFIGURACIÓN DE GRUPOS
 app.post('/api/groups', (req, res) => res.json(bot.addGroup(req.body)));
 
 app.put('/api/groups/:id', (req, res) => {
@@ -72,19 +74,24 @@ app.post('/api/logout', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// RUTAS NUEVAS PARA EL RADAR PERSISTENTE
+// RADAR PERSISTENTE POR GRUPO
 app.get('/api/groups/:waGroupId/discovered', (req, res) => {
   res.json(bot.getDiscovered(req.params.waGroupId));
 });
 
-app.delete('/api/discovered/:id', (req, res) => {
-  bot.removeDiscovered(req.params.id);
-  res.json({ ok: true });
+// AJUSTES GLOBALES (MENSAJES ROTATIVOS)
+app.get('/api/settings', (req, res) => {
+  res.json(bot.getSettings());
+});
+
+app.post('/api/settings', (req, res) => {
+  res.json(bot.saveSettingsConfig(req.body));
 });
 
 io.on('connection', (socket) => {
   socket.emit('status', bot.getStatus());
   socket.emit('groups', bot.getGroupsConfig());
+  socket.emit('settings', bot.getSettings());
 });
 
 server.listen(PORT, () => {
