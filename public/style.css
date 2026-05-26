@@ -31,8 +31,8 @@ body {
   max-width: 560px;
   margin: 0 auto;
   height: 60px;
-  background: #1a1d27;
-  border-bottom: 1px solid #252836;
+  background: #0d111a;
+  border-bottom: 2px solid #1e293b;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -41,9 +41,17 @@ body {
 }
 
 .sticky-header h1 {
-  font-size: 1.2rem;
-  font-weight: 700;
+  font-size: 1.15rem;
+  font-weight: 900;
   color: #fff;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.sticky-header h1 span {
+  color: #00ff66;
+  text-shadow: 0 0 10px rgba(0, 255, 102, 0.4);
+  font-weight: 900;
 }
 
 .header-right {
@@ -263,7 +271,7 @@ input:checked + .ios-slider:before { transform: translateX(20px); }
   border-top: 1px solid #252836;
   display: flex;
   z-index: 90;
-  padding-bottom: env(safe-area-inset-bottom); /* Soporte notch iphone */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .nav-item {
@@ -291,7 +299,7 @@ input:checked + .ios-slider:before { transform: translateX(20px); }
   inset: 0;
   background: rgba(0,0,0,0.8);
   display: flex;
-  align-items: flex-end; /* Abre desde abajo tipo cajón en móvil */
+  align-items: flex-end;
   justify-content: center;
   z-index: 100;
 }
