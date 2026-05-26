@@ -17,30 +17,36 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const SESSION_PATH = path.join(DATA_DIR, 'session_auth');
 const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
+const DISCOVERED_FILE = path.join(DATA_DIR, 'discovered.json'); // El nuevo archivo
 
 let sock = null;
 let io = null;
 let groups = [];
+let discovered = []; // Memoria de radar
 let status = { connected: false, whatsappStatus: 'disconnected', needsPairing: true }; 
 
-function loadGroups() {
+function loadFiles() {
     try {
         if (fs.existsSync(GROUPS_FILE)) {
             const data = JSON.parse(fs.readFileSync(GROUPS_FILE, 'utf8'));
             groups = data.map(g => ({ ...g, active: false }));
-            console.log(`[BOT] Grupos cargados: ${groups.length}`);
+        }
+        if (fs.existsSync(DISCOVERED_FILE)) {
+            discovered = JSON.parse(fs.readFileSync(DISCOVERED_FILE, 'utf8'));
         }
     } catch (e) {
-        console.error('[BOT] Error cargando grupos:', e.message);
+        console.error('[BOT] Error leyendo archivos:', e.message);
     }
 }
 
 function saveGroups() {
-    try {
-        fs.writeFileSync(GROUPS_FILE, JSON.stringify(groups, null, 2));
-    } catch (e) {
-        console.error('[BOT] Error guardando grupos:', e.message);
-    }
+    try { fs.writeFileSync(GROUPS_FILE, JSON.stringify(groups, null, 2)); } 
+    catch (e) { }
+}
+
+function saveDiscovered() {
+    try { fs.writeFileSync(DISCOVERED_FILE, JSON.stringify(discovered, null, 2)); } 
+    catch (e) { }
 }
 
 function numbersMatch(senderId, storedNumber) {
@@ -59,7 +65,6 @@ function numbersMatch(senderId, storedNumber) {
 async function handleMessage(m) {
     if (m.type !== 'notify') return;
     const msg = m.messages[0];
-    
     if (!msg.message || msg.key.fromMe) return;
 
     const from = msg.key.remoteJid;
@@ -68,21 +73,16 @@ async function handleMessage(m) {
 
     let isSticker = false;
     const messageContent = msg.message;
-    
-    if (messageContent.stickerMessage) {
-        isSticker = true;
-    } else if (messageContent.ephemeralMessage?.message?.stickerMessage) {
-        isSticker = true;
-    } else if (messageContent.viewOnceMessage?.message?.stickerMessage) {
-        isSticker = true;
-    } else if (messageContent.viewOnceMessageV2?.message?.stickerMessage) {
-        isSticker = true;
-    }
+    if (messageContent.stickerMessage) isSticker = true;
+    else if (messageContent.ephemeralMessage?.message?.stickerMessage) isSticker = true;
+    else if (messageContent.viewOnceMessage?.message?.stickerMessage) isSticker = true;
+    else if (messageContent.viewOnceMessageV2?.message?.stickerMessage) isSticker = true;
 
     if (!isSticker) return;
 
     const sender = msg.key.participant || msg.key.remoteJid;
-    const senderName = msg.pushName || 'Negocio Desconocido'; // Atrapamos el nombre de WhatsApp
+    const senderName = msg.pushName || 'Negocio Desconocido';
+    const cleanId = sender.replace('@lid', '').replace('@s.whatsapp.net', '');
 
     const negocioConfig = group.numbers.find(n => {
         const num = typeof n === 'string' ? n : n.number;
@@ -90,16 +90,23 @@ async function handleMessage(m) {
         return active && numbersMatch(sender, num);
     });
 
-    // Si el negocio NO está registrado, mandamos el ID y Nombre a la caja web
     if (!negocioConfig) {
-        const cleanId = sender.replace('@lid', '').replace('@s.whatsapp.net', '');
-        console.log(`[BOT] ❌ Nuevo negocio: ${senderName} (${cleanId})`);
-        if (io) io.emit('nuevo-id', { 
-            groupName: group.groupName, 
-            groupId: group.id,
-            id: cleanId,
-            name: senderName
-        });
+        // Verificar si ya está en el radar para no duplicar
+        const yaExiste = discovered.find(d => d.groupId === from && d.lid === cleanId);
+        if (!yaExiste) {
+            discovered.push({
+                id: Date.now().toString(),
+                groupId: from,
+                lid: cleanId,
+                name: senderName,
+                time: Date.now()
+            });
+            // Mantener un límite de memoria de 200 IDs globales para no llenar el archivo
+            if (discovered.length > 200) discovered.shift(); 
+            saveDiscovered();
+            console.log(`[BOT] 📡 Negocio guardado en radar persistente: ${senderName}`);
+            if (io) io.emit('nuevo-descubierto', { groupId: from });
+        }
         return;
     }
 
@@ -109,7 +116,6 @@ async function handleMessage(m) {
     try {
         await sock.sendMessage(from, { text: group.replyMessage }, { quoted: msg });
         console.log(`[BOT] ✅ ¡Pedido tomado en ${group.groupName}!`);
-        
         if (io) io.emit('pedido-tomado', { groupName: group.groupName });
         saveGroups();
     } catch (e) {
@@ -139,21 +145,16 @@ async function connectToWhatsApp() {
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
         if (qr) {
             status = { connected: false, whatsappStatus: 'pairing_ready', needsPairing: true };
             if (io) io.emit('status', status);
         }
-
         if (connection === 'close') {
             const code = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = code !== DisconnectReason.loggedOut;
             status = { connected: false, whatsappStatus: 'disconnected', needsPairing: true };
             if (io) io.emit('status', status);
-            
-            if (shouldReconnect) {
-                setTimeout(() => connectToWhatsApp(), 3000);
-            }
+            if (shouldReconnect) setTimeout(() => connectToWhatsApp(), 3000);
         } else if (connection === 'open') {
             status = { connected: true, whatsappStatus: 'ready', needsPairing: false };
             if (io) io.emit('status', status);
@@ -166,39 +167,37 @@ async function connectToWhatsApp() {
 }
 
 module.exports = {
-    init: () => { loadGroups(); connectToWhatsApp(); },
+    init: () => { loadFiles(); connectToWhatsApp(); },
     setIO: (ioInstance) => { io = ioInstance; },
     getStatus: () => status,
     getGroupsConfig: () => groups,
     
+    // Funciones del radar persistente
+    getDiscovered: (waGroupId) => discovered.filter(d => d.groupId === waGroupId).reverse(),
+    removeDiscovered: (id) => {
+        discovered = discovered.filter(d => d.id !== id);
+        saveDiscovered();
+    },
+
     requestPairingCodeAuth: async (phoneNumber) => {
         if (!sock) throw new Error('El sistema está iniciando.');
         if (!status.needsPairing) throw new Error('Ya hay una sesión iniciada.');
-        
         try {
             const cleanNumber = phoneNumber.replace(/\D/g, '');
-            const code = await sock.requestPairingCode(cleanNumber);
-            return code;
+            return await sock.requestPairingCode(cleanNumber);
         } catch (error) {
-            console.error('[BOT] Error generando código:', error?.message || error);
-            if (error?.message?.includes('Connection Closed')) {
-                throw new Error('El servidor de WA no está listo. Espera unos segundos.');
-            } else if (error?.message?.includes('rate-overlimit')) {
-                throw new Error('WhatsApp bloqueó temporalmente este número. Intenta más tarde.');
-            }
+            if (error?.message?.includes('Connection Closed')) throw new Error('El servidor de WA no está listo. Espera unos segundos.');
+            else if (error?.message?.includes('rate-overlimit')) throw new Error('WhatsApp bloqueó temporalmente este número. Intenta más tarde.');
             throw new Error('Asegúrate de incluir el código de país correcto.');
         }
     },
-    
     addGroup: (data) => {
         const newGroup = {
             id: Date.now().toString(),
             groupId: data.groupId,
             groupName: data.groupName,
             replyMessage: data.replyMessage || 'yo',
-            numbers: (data.numbers || []).map(n =>
-                typeof n === 'string' ? { number: n, name: n, active: true } : n
-            ),
+            numbers: (data.numbers || []).map(n => typeof n === 'string' ? { number: n, name: n, active: true } : n),
             active: false
         };
         groups.push(newGroup);
@@ -209,12 +208,8 @@ module.exports = {
     updateGroup: (id, data) => {
         const index = groups.findIndex(g => g.id === id);
         if (index === -1) throw new Error('Grupo no encontrado');
-        
         const wasActive = groups[index].active;
-        const numbers = (data.numbers || groups[index].numbers).map(n =>
-            typeof n === 'string' ? { number: n, name: n, active: true } : n
-        );
-        
+        const numbers = (data.numbers || groups[index].numbers).map(n => typeof n === 'string' ? { number: n, name: n, active: true } : n);
         groups[index] = { ...groups[index], ...data, active: wasActive, numbers };
         saveGroups();
         if (io) io.emit('groups', groups);
@@ -237,9 +232,7 @@ module.exports = {
         const group = groups.find(g => g.id === groupId);
         if (group && group.numbers[numIndex]) {
             const n = group.numbers[numIndex];
-            group.numbers[numIndex] = typeof n === 'string' 
-                ? { number: n, name: n, active: false } 
-                : { ...n, active: !n.active };
+            group.numbers[numIndex] = typeof n === 'string' ? { number: n, name: n, active: false } : { ...n, active: !n.active };
             saveGroups();
             if (io) io.emit('groups', groups);
             return group.numbers[numIndex];
@@ -248,9 +241,7 @@ module.exports = {
     toggleAllNumbers: (groupId, value) => {
         const group = groups.find(g => g.id === groupId);
         if (group) {
-            group.numbers = group.numbers.map(n =>
-                typeof n === 'string' ? { number: n, name: n, active: value } : { ...n, active: value }
-            );
+            group.numbers = group.numbers.map(n => typeof n === 'string' ? { number: n, name: n, active: value } : { ...n, active: value });
             saveGroups();
             if (io) io.emit('groups', groups);
         }
