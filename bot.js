@@ -17,12 +17,12 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const SESSION_PATH = path.join(DATA_DIR, 'session_auth');
 const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
-const DISCOVERED_FILE = path.join(DATA_DIR, 'discovered.json'); // El nuevo archivo
+const DISCOVERED_FILE = path.join(DATA_DIR, 'discovered.json'); 
 
 let sock = null;
 let io = null;
 let groups = [];
-let discovered = []; // Memoria de radar
+let discovered = []; 
 let status = { connected: false, whatsappStatus: 'disconnected', needsPairing: true }; 
 
 function loadFiles() {
@@ -91,7 +91,6 @@ async function handleMessage(m) {
     });
 
     if (!negocioConfig) {
-        // Verificar si ya está en el radar para no duplicar
         const yaExiste = discovered.find(d => d.groupId === from && d.lid === cleanId);
         if (!yaExiste) {
             discovered.push({
@@ -101,7 +100,6 @@ async function handleMessage(m) {
                 name: senderName,
                 time: Date.now()
             });
-            // Mantener un límite de memoria de 200 IDs globales para no llenar el archivo
             if (discovered.length > 200) discovered.shift(); 
             saveDiscovered();
             console.log(`[BOT] 📡 Negocio guardado en radar persistente: ${senderName}`);
@@ -114,7 +112,8 @@ async function handleMessage(m) {
     if (io) io.emit('groups', groups);
 
     try {
-        await sock.sendMessage(from, { text: group.replyMessage }, { quoted: msg });
+        // CORRECCIÓN ANTI-BAN: Se quitó el parámetro { quoted: msg } para que parezca un mensaje escrito manualmente.
+        await sock.sendMessage(from, { text: group.replyMessage });
         console.log(`[BOT] ✅ ¡Pedido tomado en ${group.groupName}!`);
         if (io) io.emit('pedido-tomado', { groupName: group.groupName });
         saveGroups();
@@ -172,7 +171,6 @@ module.exports = {
     getStatus: () => status,
     getGroupsConfig: () => groups,
     
-    // Funciones del radar persistente
     getDiscovered: (waGroupId) => discovered.filter(d => d.groupId === waGroupId).reverse(),
     removeDiscovered: (id) => {
         discovered = discovered.filter(d => d.id !== id);
