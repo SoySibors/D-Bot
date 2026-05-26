@@ -69,7 +69,9 @@ async function handleMessage(m) {
 
     const from = msg.key.remoteJid;
     const group = groups.find(g => g.groupId === from);
-    if (!group || !group.active) return;
+    
+    // Si el grupo no está creado en el panel, ignoramos todo
+    if (!group) return;
 
     let isSticker = false;
     const messageContent = msg.message;
@@ -84,12 +86,13 @@ async function handleMessage(m) {
     const senderName = msg.pushName || 'Negocio Desconocido';
     const cleanId = sender.replace('@lid', '').replace('@s.whatsapp.net', '');
 
+    // 1. REVISAR SI EL NEGOCIO YA ESTÁ EN LA LISTA (prendido o apagado)
     const negocioConfig = group.numbers.find(n => {
         const num = typeof n === 'string' ? n : n.number;
-        const active = typeof n === 'string' ? true : n.active !== false;
-        return active && numbersMatch(sender, num);
+        return numbersMatch(sender, num);
     });
 
+    // 2. LÓGICA DEL RADAR (Siempre activo)
     if (!negocioConfig) {
         const yaExiste = discovered.find(d => d.groupId === from && d.lid === cleanId);
         if (!yaExiste) {
@@ -100,19 +103,26 @@ async function handleMessage(m) {
                 name: senderName,
                 time: Date.now()
             });
-            if (discovered.length > 200) discovered.shift(); 
+            // Subimos el límite a 500 para que sea un buen historial
+            if (discovered.length > 500) discovered.shift(); 
             saveDiscovered();
-            console.log(`[BOT] 📡 Negocio guardado en radar persistente: ${senderName}`);
+            console.log(`[BOT] 📡 Nuevo en radar: ${senderName}`);
             if (io) io.emit('nuevo-descubierto', { groupId: from });
         }
-        return;
+        return; // Si es nuevo, lo guardamos y abortamos el disparo
     }
 
+    // 3. LÓGICA DEL GATILLO (Solo si el grupo y el número están activos)
+    if (!group.active) return;
+    
+    const isActive = typeof negocioConfig === 'string' ? true : negocioConfig.active !== false;
+    if (!isActive) return;
+
+    // ¡FUEGO!
     groups.forEach(g => g.active = false);
     if (io) io.emit('groups', groups);
 
     try {
-        // CORRECCIÓN ANTI-BAN: Se quitó el parámetro { quoted: msg } para que parezca un mensaje escrito manualmente.
         await sock.sendMessage(from, { text: group.replyMessage });
         console.log(`[BOT] ✅ ¡Pedido tomado en ${group.groupName}!`);
         if (io) io.emit('pedido-tomado', { groupName: group.groupName });
