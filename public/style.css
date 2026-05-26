@@ -276,6 +276,7 @@ input[type="text"], input[type="tel"], select { flex: 1; background: #0f1117; bo
 input[type="text"]:focus, input[type="tel"]:focus, select:focus { border-color: #00ff66; }
 .btn-sm { background: #252836; color: #fff; border: none; padding: 10px 14px; border-radius: 10px; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
 
+/* ── BOTONES DE EDICIÓN Y AGREGAR TODOS ── */
 .tag-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .tag-item { background: #0f1117; border: 1px solid #252836; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; }
 .tag-click-zone { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; cursor: pointer; }
@@ -284,7 +285,9 @@ input[type="text"]:focus, input[type="tel"]:focus, select:focus { border-color: 
 .status-indicator { width: 8px; height: 8px; border-radius: 50%; background: #25d366; flex-shrink: 0; }
 .tag-item.disabled { opacity: 0.4; }
 .tag-item.disabled .status-indicator { background: #555; }
-.tag-remove { background: none; border: none; color: #e74c3c; font-size: 0.85rem; padding: 4px 8px; cursor: pointer; }
+.tag-actions { display: flex; align-items: center; gap: 4px; }
+.tag-edit { background: none; border: none; color: #7eb8f7; font-size: 0.9rem; padding: 4px 6px; cursor: pointer; }
+.tag-remove { background: none; border: none; color: #e74c3c; font-size: 0.9rem; padding: 4px 6px; cursor: pointer; }
 
 .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
 .btn-save { flex: 1; background: #1b3a5c; color: #7eb8f7; border: 1px solid #2a4d7a; padding: 12px; border-radius: 10px; font-size: 0.9rem; font-weight: 700; cursor: pointer; }
@@ -294,6 +297,10 @@ input[type="text"]:focus, input[type="tel"]:focus, select:focus { border-color: 
 .btn-toggle-all { background: none; border: none; font-size: 0.72rem; font-weight: 700; cursor: pointer; margin-left: 6px; }
 .btn-toggle-all.on { color: #25d366; }
 .btn-toggle-all.off { color: #e74c3c; }
+
+/* ── BOTÓN MÁGICO DEL RADAR ── */
+.btn-add-all { width: 100%; background: rgba(126, 184, 247, 0.1); border: 1px dashed #7eb8f7; color: #7eb8f7; padding: 10px; border-radius: 10px; font-size: 0.85rem; font-weight: 700; cursor: pointer; margin-top: 10px; transition: background 0.2s; }
+.btn-add-all:active { background: rgba(126, 184, 247, 0.3); }
 
 .radar-row { display: flex; justify-content: space-between; align-items: center; background: #1a1d27; padding: 10px 12px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #252836; }
 .radar-info { display: flex; flex-direction: column; flex: 1; min-width: 0; padding-right: 8px; }
