@@ -24,6 +24,18 @@
       </section>
 
       <section id="tab-history" class="tab-section hidden">
+        
+        <div class="time-tabs">
+          <button class="time-btn active" id="timeBtn-day" onclick="switchTimeRange('day')">Día</button>
+          <button class="time-btn" id="timeBtn-week" onclick="switchTimeRange('week')">Semana</button>
+          <button class="time-btn" id="timeBtn-month" onclick="switchTimeRange('month')">Mes</button>
+        </div>
+
+        <div class="date-picker-wrapper" id="datePickerContainer">
+          <label for="historyDatePicker">Filtrar por Fecha:</label>
+          <input type="date" id="historyDatePicker" onchange="handleDateChange(this.value)" />
+        </div>
+
         <div class="metrics-grid">
           <div class="metric-card won">
             <span class="count-num" id="countWon">0</span>
@@ -35,7 +47,7 @@
           </div>
         </div>
 
-        <div class="section-divider">Registro de Cacerías</div>
+        <div class="section-divider" id="historySectionTitle">Registro de Cacerías</div>
         <div id="historyList"></div>
       </section>
 
