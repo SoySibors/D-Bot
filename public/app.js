@@ -2,49 +2,52 @@ const socket = io();
 let groups = [];
 let modalNums = [];
 let editingId = null;
-let currentWaGroupId = null; // Para saber qué grupo estamos editando
+let currentRadarWaGroupId = null;
+let currentRadarInternalId = null;
 
 socket.on('status', (s) => updateStatusDot(s));
 socket.on('groups', (g) => { groups = g; renderGroups(); });
 socket.on('qr', (dataUrl) => { });
 socket.on('pedido-tomado', ({ groupName }) => alertPedido(groupName));
 
-// Si alguien manda un sticker mientras tenemos su radar abierto, se recarga solo
+// Recargar el radar en vivo si está abierto
 socket.on('nuevo-descubierto', ({ groupId }) => {
-    if (currentWaGroupId === groupId && !document.getElementById('discoveredSection').classList.contains('hidden')) {
-        loadDiscoveredList();
+    if (currentRadarWaGroupId === groupId && !document.getElementById('radarModal').classList.contains('hidden')) {
+        loadRadarList();
     }
 });
 
-async function toggleDiscovered() {
-    const sec = document.getElementById('discoveredSection');
-    if (!sec.classList.contains('hidden')) {
-        sec.classList.add('hidden');
-        return;
-    }
-    sec.classList.remove('hidden');
-    loadDiscoveredList();
+// ABRIR Y CERRAR EL RADAR
+function openRadar(internalId, waGroupId, groupName) {
+    currentRadarInternalId = internalId;
+    currentRadarWaGroupId = waGroupId;
+    document.getElementById('radarTitle').innerHTML = `📡 Radar: <span style="color:#fff; font-size:0.9rem;">${groupName}</span>`;
+    document.getElementById('radarModal').classList.remove('hidden');
+    loadRadarList();
 }
 
-async function loadDiscoveredList() {
-    const listEl = document.getElementById('discoveredList');
-    listEl.innerHTML = '<div style="color:#555;font-size:0.8rem; text-align:center;">Buscando en memoria...</div>';
+function closeRadar() { document.getElementById('radarModal').classList.add('hidden'); }
+function closeRadarOutside(e) { if (e.target === document.getElementById('radarModal')) closeRadar(); }
+
+async function loadRadarList() {
+    const listEl = document.getElementById('radarList');
+    listEl.innerHTML = '<div style="color:#555;font-size:0.8rem; text-align:center;">Cargando historial...</div>';
     try {
-        const res = await fetch(`/api/groups/${currentWaGroupId}/discovered`);
+        const res = await fetch(`/api/groups/${currentRadarWaGroupId}/discovered`);
         const data = await res.json();
         if (!data.length) {
-            listEl.innerHTML = '<div style="color:#555;font-size:0.8rem; text-align:center;">No hay negocios nuevos detectados aún.</div>';
+            listEl.innerHTML = '<div style="color:#555;font-size:0.8rem; text-align:center; margin-top:20px;">No hay historial de stickers aún.</div>';
             return;
         }
         listEl.innerHTML = data.map(d => {
             const safeName = d.name.replace(/'/g, "\\'");
             return `
-            <div style="display:flex; justify-content:space-between; align-items:center; background:#1a1d27; padding:8px 10px; border-radius:8px; margin-bottom:6px; border: 1px solid #252836;">
-                <div style="flex:1; min-width:0; padding-right: 8px;">
-                    <div style="color:#fff; font-size:0.85rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${d.name}</div>
-                    <div style="color:#aaa; font-size:0.75rem; font-family:monospace; margin-top:2px;">ID: ${d.lid}</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#1a1d27; padding:10px 12px; border-radius:10px; margin-bottom:8px; border: 1px solid #252836;">
+                <div style="flex:1; min-width:0; padding-right: 10px;">
+                    <div style="color:#fff; font-size:0.9rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${d.name}</div>
+                    <div style="color:#25d366; font-size:0.75rem; font-family:monospace; margin-top:3px;">ID: ${d.lid}</div>
                 </div>
-                <button onclick="addDiscovered('${d.lid}', '${safeName}', '${d.id}')" style="background:#25d366; color:#000; border:none; border-radius:6px; padding:6px 12px; font-weight:700; cursor:pointer; font-size:0.75rem;">+ Add</button>
+                <button onclick="addFromRadar('${d.lid}', '${safeName}')" style="background:#252836; color:#7eb8f7; border:1px solid #7eb8f7; border-radius:8px; padding:8px 14px; font-weight:700; cursor:pointer; font-size:0.8rem; transition: background 0.2s;">+ Add</button>
             </div>
             `;
         }).join('');
@@ -53,32 +56,38 @@ async function loadDiscoveredList() {
     }
 }
 
-async function addDiscovered(lid, name, discId) {
-    if (modalNums.some(n => n.number === lid)) {
-        showToast('Ya está en la lista', true);
-    } else {
-        modalNums.push({ number: lid, name: name, active: true });
-        renderModalNums();
-        showToast(`Agregado: ${name}`);
+// AGREGAR DESDE EL RADAR (Anti-Duplicados y Permanente)
+async function addFromRadar(lid, name) {
+    const g = groups.find(x => x.id === currentRadarInternalId);
+    if (!g) return;
+
+    // Bloqueo Anti-Duplicado
+    if (g.numbers.some(n => (typeof n === 'string' ? n : n.number) === lid)) {
+        showToast('❌ Ese número ya está configurado', true);
+        return;
     }
-    // Borrar de la base de datos de pendientes
-    await fetch(`/api/discovered/${discId}`, { method: 'DELETE' });
-    loadDiscoveredList(); 
+
+    const updatedNumbers = [...g.numbers, { number: lid, name: name, active: true }];
+    const data = { ...g, numbers: updatedNumbers };
+
+    await fetch(`/api/groups/${currentRadarInternalId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+
+    showToast(`✅ Agregado: ${name}`);
+    // No borramos la tarjeta del radar, se queda como historial permanente.
 }
 
 async function requestWaCode() {
   const phoneInput = document.getElementById('waPhoneNumber').value.trim().replace(/\D/g, '');
-  if (!phoneInput) {
-    showToast('Ingresa un número válido', true);
-    return;
-  }
+  if (!phoneInput) { showToast('Ingresa un número válido', true); return; }
   const btn = document.getElementById('btnRequestCode');
   btn.textContent = '...'; btn.disabled = true;
 
   try {
-    const res = await fetch('/api/request-code', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneInput })
-    });
+    const res = await fetch('/api/request-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneInput }) });
     const data = await res.json();
     if (res.ok && data.code) {
       document.getElementById('phoneInputStep').classList.add('hidden');
@@ -117,11 +126,14 @@ function updateStatusDot(statusObj) {
   }
 }
 
+// RENDEREADO DE LA TARJETA PRINCIPAL (Ahora con doble botón)
 function renderGroups() {
   const el = document.getElementById('groupsList');
   if (!groups.length) { el.innerHTML = '<div class="empty">Sin grupos · toca + para agregar</div>'; return; }
   el.innerHTML = groups.map(g => {
     const onCount = g.numbers.filter(n => typeof n === 'string' ? true : n.active !== false).length;
+    // Escapamos el nombre por si trae comillas
+    const safeGroupName = g.groupName.replace(/'/g, "\\'");
     return `
       <div class="group-card ${g.active ? 'is-active' : ''}" id="card-${g.id}">
         <div class="group-card-header">
@@ -129,7 +141,10 @@ function renderGroups() {
             <div class="group-card-name">${g.groupName}</div>
             <div class="group-card-meta">${onCount} de ${g.numbers.length} negocios activos · stickers</div>
           </div>
-          <button class="group-card-edit" onclick="openModal('${g.id}')">⚙️</button>
+          <div style="display:flex; gap: 8px;">
+            <button class="group-card-edit" onclick="openRadar('${g.id}', '${g.groupId}', '${safeGroupName}')" style="color:#7eb8f7;" title="Abrir Radar">📡</button>
+            <button class="group-card-edit" onclick="openModal('${g.id}')" title="Configurar">⚙️</button>
+          </div>
         </div>
         <button class="group-toggle ${g.active ? 'on' : 'off'}" onclick="toggleGroup('${g.id}')">
           ${g.active ? '⏹ DESACTIVAR' : '▶ ACTIVAR'}
@@ -147,25 +162,19 @@ async function toggleGroup(id) {
 
 function openModal(id = null) {
   editingId = id;
-  document.getElementById('discoveredSection').classList.add('hidden'); // Ocultar radar al abrir
-  
   if (id) {
     const g = groups.find(x => x.id === id);
-    currentWaGroupId = g.groupId;
     document.getElementById('modalTitle').textContent = 'Editar grupo';
     document.getElementById('replyMessage').value = g.replyMessage || 'yo';
     modalNums = g.numbers.map(n => typeof n === 'string' ? { number: n, name: n, active: true } : { ...n });
     loadWAGroups(g.groupId, g.groupName);
     document.getElementById('btnDelete').classList.remove('hidden');
-    document.getElementById('btnShowDiscovered').classList.remove('hidden'); // Mostrar botón de radar
   } else {
-    currentWaGroupId = null;
     document.getElementById('modalTitle').textContent = 'Nuevo grupo';
     document.getElementById('replyMessage').value = 'yo';
     document.getElementById('groupSelect').innerHTML = '<option value="">— Selecciona —</option>';
     modalNums = [];
     document.getElementById('btnDelete').classList.add('hidden');
-    document.getElementById('btnShowDiscovered').classList.add('hidden'); // Ocultar radar para grupos nuevos
     loadWAGroups();
   }
   renderModalNums();
@@ -202,7 +211,7 @@ function addNumber() {
   const phone = phoneInput.value.trim().replace(/\D/g, '');
   const name = nameInput.value.trim();
   if (!phone) return;
-  if (modalNums.some(n => n.number === phone)) return;
+  if (modalNums.some(n => n.number === phone)) { showToast('Ya está en la lista', true); return; }
   modalNums.push({ number: phone, name: name || phone, active: true });
   renderModalNums();
   nameInput.value = ''; phoneInput.value = '';
