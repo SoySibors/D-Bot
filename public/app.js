@@ -13,7 +13,6 @@ let editingGroupId = null;
 let modalNumbers = [];
 let activeRadarGroupId = null;
 
-// Inicializar fecha de hoy al cargar la app de forma nativa
 function initDefaultDate() {
   const hoy = new Date();
   const yyyy = hoy.getFullYear();
@@ -37,7 +36,6 @@ function switchTab(tabId) {
   if (tabId === 'panel') renderTags();
 }
 
-// ── CONTROL DE RANGOS CRONOLÓGICOS (NUEVO) ───────────────────────────
 function switchTimeRange(range) {
   activeTimeRange = range;
   document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
@@ -130,7 +128,7 @@ async function requestWaCode() {
   } catch (e) { showToast(e.message); btn.innerText = 'Generando código'; btn.disabled = false; }
 }
 
-// ── MOTOR DE FILTRADO AVANZADO DE MÉTRICAS (MÓVIL) ───────────────────
+// ── MOTOR DE FILTRADO AVANZADO DE MÉTRICAS ───────────────────────────
 function renderHistorial() {
   const container = document.getElementById('historyList');
   container.innerHTML = '';
@@ -139,12 +137,9 @@ function renderHistorial() {
   let lostCount = 0;
 
   const ahora = Date.now();
-  
-  // Límites temporales limpios
   const limiteSemana = ahora - (7 * 24 * 60 * 60 * 1000);
   const limiteMes = ahora - (30 * 24 * 60 * 60 * 1000);
 
-  // Filtrar los datos en el cliente al vuelo
   const registrosFiltrados = localHistorial.filter(p => {
     const fechaPedido = new Date(p.time);
     
@@ -164,7 +159,6 @@ function renderHistorial() {
     return true;
   });
 
-  // Título visual adaptativo
   const sectionTitle = document.getElementById('historySectionTitle');
   if (activeTimeRange === 'day') sectionTitle.innerText = `Cacerías del día (${selectedDateString})`;
   if (activeTimeRange === 'week') sectionTitle.innerText = `Cacerías de la Semana (Últimos 7 días)`;
@@ -415,7 +409,6 @@ function requestNotifPermission() {
   });
 }
 
-// Arranque inicial automático
 document.addEventListener('DOMContentLoaded', () => {
   initDefaultDate();
   if (Notification.permission === 'granted') {
@@ -424,5 +417,4 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Carga inicial de datos de historial
 fetch('/api/historial').then(res => res.json()).then(data => { localHistorial = data; renderHistorial(); });
