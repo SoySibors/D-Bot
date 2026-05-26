@@ -10,12 +10,9 @@
   <div class="app">
     <header class="sticky-header">
       <h1>Proyecto <span>D-Bot</span></h1>
-      <div class="header-right">
-        <button class="btn-notif" id="btnNotif" onclick="requestNotifPermission()" title="Activar alertas">🔔</button>
-        <div class="wa-status">
-          <span class="dot" id="statusDot"></span>
-          <span id="statusText">Conectando...</span>
-        </div>
+      <div class="wa-status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Conectando...</span>
       </div>
     </header>
 
@@ -26,11 +23,27 @@
         <button class="btn-add-group" onclick="openModal()">+ Agregar grupo</button>
       </section>
 
-      <section id="tab-settings" class="tab-section hidden">
-        <div class="card" style="margin-top: 10px;">
+      <section id="tab-history" class="tab-section hidden">
+        <div class="metrics-grid">
+          <div class="metric-card won">
+            <span class="count-num" id="countWon">0</span>
+            <span class="count-label">Ganados</span>
+          </div>
+          <div class="metric-card lost">
+            <span class="count-num" id="countLost">0</span>
+            <span class="count-label">Perdidos</span>
+          </div>
+        </div>
+
+        <div class="section-divider">Registro de Cacerías</div>
+        <div id="historyList"></div>
+      </section>
+
+      <section id="tab-panel" class="tab-section hidden">
+        <div class="card" style="margin-top: 5px;">
           <h2>Dispositivo WhatsApp</h2>
           <div id="phoneInputStep">
-            <p class="hint">WhatsApp → Dispositivos vinculados → Vincular con el número de teléfono.</p>
+            <p class="hint">WhatsApp → Dispositivos vinculados → Vincular con número de teléfono.</p>
             <div class="row" style="margin-top: 10px;">
               <input type="tel" id="waPhoneNumber" placeholder="Ej: 5219981234567" />
               <button class="btn-sm" onclick="requestWaCode()" id="btnRequestCode" style="background: #25d366; color: #000;">Generar código</button>
@@ -43,27 +56,27 @@
         </div>
 
         <div class="card">
-          <h2>Respuestas Rotativas Anti-Ban 📡</h2>
-          <p class="hint">Escribe una palabra o frase (ej: "yo", "voy 🛵") y presiona el botón "+" para agregarla a tus etiquetas de disparo aleatorio.</p>
+          <h2>Alertas y Notificaciones</h2>
+          <p class="hint">Activa el canal de notificaciones nativas en segundo plano para recibir pitidos instantáneos cuando el bot gane pedidos en la calle.</p>
+          <button class="btn-notif-perm" id="btnNotif" onclick="requestNotifPermission()">🔔 Activar Alertas del Sistema</button>
+          <p class="notif-status-ok hidden" id="txtNotifOk">✅ Canal de notificaciones activado de forma correcta.</p>
+        </div>
+
+        <div class="card">
+          <h2>Respuestas Rotativas Anti-Ban</h2>
+          <p class="hint">Las respuestas se seleccionarán al azar para despistar a los administradores.</p>
           <div class="row" style="margin-top: 10px;">
             <input type="text" id="newTagInput" placeholder="Escribe una respuesta..." />
             <button class="btn-sm" onclick="addNewMsgTag()">+</button>
           </div>
-          <div id="tagsContainer" class="tags-wrapper">
-            </div>
+          <div id="tagsContainer" class="tags-wrapper"></div>
         </div>
-      </section>
 
-      <section id="tab-account" class="tab-section hidden">
-        <div class="card" style="margin-top: 10px; text-align: center; padding: 30px 15px;">
-          <div style="font-size: 3rem; margin-bottom: 15px;">👤</div>
-          <h2>Panel del Repartidor</h2>
-          <p class="hint" style="margin-top: 5px;">Licencia Comercial Activa</p>
-          <div style="margin-top: 30px; border-top: 1px solid #252836; padding-top: 20px;">
-            <button class="btn-logout" id="btnLogout" onclick="confirmLogout()" style="width: 100%; border-radius: 12px; height: 45px; justify-content: center; display: flex; align-items: center; gap: 8px; font-weight: 700;">
-              🚪 Cerrar Sesión de WhatsApp
-            </button>
-          </div>
+        <div class="card" style="border-color: #4a2020; background: rgba(231, 76, 60, 0.02);">
+          <h2>Destruir Autenticación</h2>
+          <button class="btn-logout" id="btnLogout" onclick="confirmLogout()">
+            🚪 Cerrar Sesión de WhatsApp
+          </button>
         </div>
       </section>
     </main>
@@ -73,13 +86,13 @@
         <span class="nav-icon">🛵</span>
         <span class="nav-label">Grupos</span>
       </button>
-      <button class="nav-item" id="navBtn-settings" onclick="switchTab('settings')">
-        <span class="nav-icon">⚙️</span>
-        <span class="nav-label">Ajustes</span>
+      <button class="nav-item" id="navBtn-history" onclick="switchTab('history')">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Historial</span>
       </button>
-      <button class="nav-item" id="navBtn-account" onclick="switchTab('account')">
-        <span class="nav-icon">👤</span>
-        <span class="nav-label">Cuenta</span>
+      <button class="nav-item" id="navBtn-panel" onclick="switchTab('panel')">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Panel</span>
       </button>
     </nav>
   </div>
@@ -90,17 +103,13 @@
         <h2 id="modalTitle">Nuevo grupo</h2>
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
-
       <div class="field">
         <label>Grupo de WhatsApp</label>
         <div class="row">
-          <select id="groupSelect">
-            <option value="">— Selecciona —</option>
-          </select>
+          <select id="groupSelect"><option value="">— Selecciona —</option></select>
           <button class="btn-sm" onclick="loadWAGroups()">🔄</button>
         </div>
       </div>
-
       <div class="field">
         <div class="numbers-header">
           <label>Negocios Activos</label>
@@ -109,16 +118,13 @@
             <button class="btn-toggle-all off" onclick="toggleAllModal(false)">OFF</button>
           </div>
         </div>
-        <p class="hint">Nombre del negocio (opcional)</p>
-        <input type="text" id="numberNameInput" placeholder="Ej: Burger St" style="margin-bottom:8px;width:100%;" />
-        <p class="hint">Número o ID de WhatsApp</p>
+        <input type="text" id="numberNameInput" placeholder="Ej: Burger St" style="margin-bottom:8px;" />
         <div class="row">
           <input type="tel" id="numberInput" placeholder="ID del negocio..." />
           <button class="btn-sm" onclick="addNumber()">+</button>
         </div>
         <ul id="numberList" class="tag-list"></ul>
       </div>
-
       <div class="modal-actions">
         <button class="btn-delete hidden" id="btnDelete" onclick="deleteGroup()">🗑 Eliminar</button>
         <button class="btn-save" onclick="saveGroup()">💾 Guardar</button>
@@ -132,7 +138,7 @@
         <h2 id="radarTitle" style="color: #7eb8f7;">📡 Radar Permanente</h2>
         <button class="modal-close" onclick="closeRadar()">✕</button>
       </div>
-      <p class="hint">Historial de negocios detectados en este grupo. Agrega los que te interesen a tu lista activa.</p>
+      <p class="hint">Historial de stickers detectados en el chat.</p>
       <div id="radarList" style="margin-top: 15px; max-height: 60vh; overflow-y: auto;"></div>
     </div>
   </div>
