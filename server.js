@@ -14,7 +14,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 bot.setIO(io);
 
-// RUTA PARA SOLICITAR EL CÓDIGO DE VINCULACIÓN DE 8 DÍGITOS
 app.post('/api/request-code', async (req, res) => {
   try {
     const code = await bot.requestPairingCodeAuth(req.body.phone);
@@ -71,6 +70,16 @@ app.get('/api/wa-groups', async (req, res) => {
 app.post('/api/logout', async (req, res) => {
   try { await bot.logout(); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// RUTAS NUEVAS PARA EL RADAR PERSISTENTE
+app.get('/api/groups/:waGroupId/discovered', (req, res) => {
+  res.json(bot.getDiscovered(req.params.waGroupId));
+});
+
+app.delete('/api/discovered/:id', (req, res) => {
+  bot.removeDiscovered(req.params.id);
+  res.json({ ok: true });
 });
 
 io.on('connection', (socket) => {
