@@ -313,3 +313,14 @@ input[type="text"]:focus, input[type="tel"]:focus, select:focus { border-color: 
 .toast.show { opacity: 1; }
 
 .empty-state { text-align: center; color: #555; font-size: 0.85rem; padding: 40px 10px; line-height: 1.4; }
+
+/* ── FAVORITOS ── */
+.tag-item.is-favorite { border-color: rgba(255, 193, 7, 0.4); background: rgba(255, 193, 7, 0.04); }
+.tag-fav { background: none; border: none; font-size: 0.9rem; padding: 4px 6px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
+.tag-fav.active { opacity: 1; }
+
+/* ── RADAR BLOQUEADOS ── */
+.radar-row.radar-blocked { opacity: 0.45; }
+.radar-added-label { font-size: 0.75rem; color: #25d366; font-weight: 700; padding: 6px 10px; }
+.radar-actions { display: flex; align-items: center; gap: 6px; }
+.btn-radar-unblock { background: rgba(231,76,60,0.1); color: #e74c3c; border: 1px solid #e74c3c; border-radius: 8px; padding: 6px 10px; font-weight: 700; cursor: pointer; font-size: 0.75rem; }
