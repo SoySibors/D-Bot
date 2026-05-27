@@ -14,88 +14,86 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 bot.setIO(io);
 
-// VINCULACIÓN DE WHATSAPP
 app.post('/api/request-code', async (req, res) => {
-  try {
-    const code = await bot.requestPairingCodeAuth(req.body.phone);
-    res.json({ code });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    try {
+        const code = await bot.requestPairingCodeAuth(req.body.phone);
+        res.json({ code });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/status', (req, res) => res.json(bot.getStatus()));
 app.get('/api/groups', (req, res) => res.json(bot.getGroupsConfig()));
-
-// CONFIGURACIÓN DE GRUPOS
 app.post('/api/groups', (req, res) => res.json(bot.addGroup(req.body)));
 
 app.put('/api/groups/:id', (req, res) => {
-  try { res.json(bot.updateGroup(req.params.id, req.body)); }
-  catch (e) { res.status(404).json({ error: e.message }); }
+    try { res.json(bot.updateGroup(req.params.id, req.body)); }
+    catch (e) { res.status(404).json({ error: e.message }); }
 });
 
 app.delete('/api/groups/:id', (req, res) => {
-  bot.removeGroup(req.params.id);
-  res.json({ ok: true });
+    bot.removeGroup(req.params.id);
+    res.json({ ok: true });
 });
 
 app.post('/api/groups/:id/activate', (req, res) => {
-  try { bot.activateGroup(req.params.id); res.json({ ok: true }); }
-  catch (e) { res.status(404).json({ error: e.message }); }
+    try { bot.activateGroup(req.params.id); res.json({ ok: true }); }
+    catch (e) { res.status(404).json({ error: e.message }); }
 });
 
 app.post('/api/groups/:id/deactivate', (req, res) => {
-  try { bot.deactivateGroup(req.params.id); res.json({ ok: true }); }
-  catch (e) { res.status(404).json({ error: e.message }); }
+    try { bot.deactivateGroup(req.params.id); res.json({ ok: true }); }
+    catch (e) { res.status(404).json({ error: e.message }); }
 });
 
-// RADAR PERSISTENTE POR GRUPO
+// BLOQUEAR / DESBLOQUEAR número
+app.post('/api/groups/:id/block', (req, res) => {
+    try { bot.blockNumber(req.params.id, req.body.lid); res.json({ ok: true }); }
+    catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+app.post('/api/groups/:id/unblock', (req, res) => {
+    try { bot.unblockNumber(req.params.id, req.body.lid); res.json({ ok: true }); }
+    catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+// TOGGLE FAVORITO
+app.post('/api/groups/:id/numbers/:index/favorite', (req, res) => {
+    try { res.json(bot.toggleFavorite(req.params.id, parseInt(req.params.index))); }
+    catch (e) { res.status(404).json({ error: e.message }); }
+});
+
 app.get('/api/groups/:waGroupId/discovered', (req, res) => {
-  res.json(bot.getDiscovered(req.params.waGroupId));
+    res.json(bot.getDiscovered(req.params.waGroupId));
 });
 
-// AJUSTES GLOBALES (CON PROTECCIÓN CONTRA UNDEFINED)
-app.get('/api/settings', (req, res) => {
-  res.json(bot.getSettings());
-});
+app.get('/api/settings', (req, res) => res.json(bot.getSettings()));
+app.post('/api/settings', (req, res) => res.json(bot.saveSettingsConfig(req.body)));
 
-app.post('/api/settings', (req, res) => {
-  res.json(bot.saveSettingsConfig(req.body));
-});
-
-// HISTORIAL Y CONTADORES PERMANENTES
-app.get('/api/historial', (req, res) => {
-  res.json(bot.getHistorial());
-});
+app.get('/api/historial', (req, res) => res.json(bot.getHistorial()));
 
 app.post('/api/historial/:id/resolve', (req, res) => {
-  try {
-    res.json(bot.resolvePedido(req.params.id, req.body.status));
-  } catch (e) {
-    res.status(404).json({ error: e.message });
-  }
+    try { res.json(bot.resolvePedido(req.params.id, req.body.status)); }
+    catch (e) { res.status(404).json({ error: e.message }); }
 });
 
 app.post('/api/logout', async (req, res) => {
-  try { await bot.logout(); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+    try { await bot.logout(); res.json({ ok: true }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/wa-groups', async (req, res) => {
-  try { res.json(await bot.getWAGroups()); }
-  catch (e) { res.status(500).json([]); }
+    try { res.json(await bot.getWAGroups()); }
+    catch (e) { res.status(500).json([]); }
 });
 
 io.on('connection', (socket) => {
-  socket.emit('status', bot.getStatus());
-  socket.emit('groups', bot.getGroupsConfig());
-  socket.emit('settings', bot.getSettings());
-  socket.emit('historial', bot.getHistorial());
+    socket.emit('status', bot.getStatus());
+    socket.emit('groups', bot.getGroupsConfig());
+    socket.emit('settings', bot.getSettings());
+    socket.emit('historial', bot.getHistorial());
 });
 
 server.listen(PORT, () => {
-  console.log(`[SERVER] Sistema inicializado en el puerto ${PORT}`);
-  bot.init();
+    console.log(`[SERVER] Sistema inicializado en el puerto ${PORT}`);
+    bot.init();
 });
- 
